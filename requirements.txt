@@ -1,5 +1,7 @@
 pyrogram==2.0.106
 tgcrypto
-motor
-pymongo
-flask
+motor==3.3.2
+pymongo[srv]==4.6.1
+aiohttp
+requests
+cinemagoer
