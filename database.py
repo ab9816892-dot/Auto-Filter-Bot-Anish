@@ -1,75 +1,61 @@
-import re
-import motor.motor_asyncio
-from config import DATABASE_URI_1, DATABASE_URI_2, DATABASE_NAME
+import logging
+import time
+from motor.motor_asyncio import AsyncIOMotorClient
+import info
 
-# Primary DB Connection
-client1 = motor.motor_asyncio.AsyncIOMotorClient(DATABASE_URI_1)
-db1 = client1[DATABASE_NAME]
-user_col = db1["users"]
-media_col_1 = db1["telegram_files"]
+logger = logging.getLogger(__name__)
 
-# Secondary DB Connection (Overflow)
-client2 = motor.motor_asyncio.AsyncIOMotorClient(DATABASE_URI_2) if DATABASE_URI_2 else client1
-db2 = client2[DATABASE_NAME] if DATABASE_URI_2 else db1
-media_col_2 = db2["telegram_files"]
+client = AsyncIOMotorClient(info.DATABASE_URI)
+db = client[info.DATABASE_NAME]
 
-MAX_DB_SIZE = 480 * 1024 * 1024  # 480MB limit for Free Tier
+col = db["files_collection"]
+users_col = db["verified_users"]
 
-class Database:
-    async def add_user(self, user_id):
-        if not await user_col.find_one({"_id": user_id}):
-            await user_col.insert_one({"_id": user_id})
+async def save_file(media):
+    file_id = getattr(media, "file_id", None)
+    if not file_id:
+        return False
 
-    async def total_users_count(self):
-        return await user_col.count_documents({})
+    file_name = getattr(media, "file_name", "Unknown")
+    file_size = getattr(media, "file_size", 0)
+    mime_type = getattr(media, "mime_type", "video/mp4")
 
-    async def get_active_collection(self):
-        try:
-            stats = await db1.command("dbStats")
-            current_size = stats.get("dataSize", 0) + stats.get("indexSize", 0)
-            if current_size >= MAX_DB_SIZE and DATABASE_URI_2:
-                return media_col_2
-        except Exception:
-            pass
-        return media_col_1
-
-    async def save_file(self, file_data):
-        file_id = file_data.get("file_id")
-        exists_1 = await media_col_1.find_one({"file_id": file_id})
-        exists_2 = await media_col_2.find_one({"file_id": file_id}) if DATABASE_URI_2 else None
-
-        if exists_1 or exists_2:
-            return False
-
-        col = await self.get_active_collection()
-        await col.insert_one(file_data)
+    file_doc = {
+        "_id": file_id,
+        "file_name": file_name,
+        "file_size": file_size,
+        "mime_type": mime_type,
+        "timestamp": time.time()
+    }
+    try:
+        await col.update_one({"_id": file_id}, {"$set": file_doc}, upsert=True)
         return True
+    except Exception as e:
+        logger.error(f"Error saving file: {e}")
+        return False
 
-    async def search_media(self, query):
-        """Smart Regex Search: Matches 'Mad Concrete Dreams' with 'Mad.Concrete.Dreams'"""
-        raw_words = query.strip().split()
-        clean_words = [re.escape(w) for w in raw_words if w]
-        if not clean_words:
-            return []
-            
-        # Matches dots, spaces, underscores, dashes between words
-        pattern = ".*".join(clean_words)
-        regex = {"file_name": {"$regex": pattern, "$options": "i"}}
-        
-        cursor1 = media_col_1.find(regex)
-        results1 = await cursor1.to_list(length=30)
+async def get_search_results(query, max_results=info.MAX_RESULTS):
+    query = query.strip()
+    regex_pattern = f".*{query}.*"
+    filter_query = {"file_name": {"$regex": regex_pattern, "$options": "i"}}
+    try:
+        cursor = col.find(filter_query, {"_id": 1, "file_name": 1, "file_size": 1}).limit(max_results)
+        return await cursor.to_list(length=max_results)
+    except Exception as e:
+        logger.error(f"Search query error: {e}")
+        return []
 
-        results2 = []
-        if DATABASE_URI_2:
-            cursor2 = media_col_2.find(regex)
-            results2 = await cursor2.to_list(length=30)
+async def is_user_verified(user_id):
+    if not info.USE_SHORTLINK:
+        return True
+    user = await users_col.find_one({"user_id": user_id})
+    if not user:
+        return False
+    return (time.time() - user.get("verified_time", 0)) < info.VERIFY_EXPIRE
 
-        combined = {item["file_id"]: item for item in results1 + results2}
-        return list(combined.values())[:50]
-
-    async def total_files_count(self):
-        count1 = await media_col_1.count_documents({})
-        count2 = await media_col_2.count_documents({}) if DATABASE_URI_2 else 0
-        return count1 + count2
-
-db_instance = Database()
+async def set_user_verified(user_id):
+    await users_col.update_one(
+        {"user_id": user_id},
+        {"$set": {"verified_time": time.time()}},
+        upsert=True
+    )
