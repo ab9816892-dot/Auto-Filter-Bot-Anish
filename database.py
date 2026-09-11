@@ -1,14 +1,14 @@
-import logging
 import time
+import logging
 from motor.motor_asyncio import AsyncIOMotorClient
-import info
+import config
 
 logger = logging.getLogger(__name__)
 
-client = AsyncIOMotorClient(info.DATABASE_URI)
-db = client[info.DATABASE_NAME]
+client = AsyncIOMotorClient(config.DATABASE_URI)
+db = client[config.DATABASE_NAME]
 
-col = db["files_collection"]
+files_col = db["files_collection"]
 users_col = db["verified_users"]
 
 async def save_file(media):
@@ -28,30 +28,31 @@ async def save_file(media):
         "timestamp": time.time()
     }
     try:
-        await col.update_one({"_id": file_id}, {"$set": file_doc}, upsert=True)
+        await files_col.update_one({"_id": file_id}, {"$set": file_doc}, upsert=True)
         return True
     except Exception as e:
         logger.error(f"Error saving file: {e}")
         return False
 
-async def get_search_results(query, max_results=info.MAX_RESULTS):
+async def get_search_results(query, max_results=config.MAX_RESULTS):
     query = query.strip()
     regex_pattern = f".*{query}.*"
     filter_query = {"file_name": {"$regex": regex_pattern, "$options": "i"}}
     try:
-        cursor = col.find(filter_query, {"_id": 1, "file_name": 1, "file_size": 1}).limit(max_results)
+        cursor = files_col.find(filter_query, {"_id": 1, "file_name": 1, "file_size": 1}).limit(max_results)
         return await cursor.to_list(length=max_results)
     except Exception as e:
-        logger.error(f"Search query error: {e}")
+        logger.error(f"Search error: {e}")
         return []
 
+# 24-Hour Shortlink Verification Helpers
 async def is_user_verified(user_id):
-    if not info.USE_SHORTLINK:
+    if not config.USE_SHORTLINK:
         return True
     user = await users_col.find_one({"user_id": user_id})
     if not user:
         return False
-    return (time.time() - user.get("verified_time", 0)) < info.VERIFY_EXPIRE
+    return (time.time() - user.get("verified_time", 0)) < config.VERIFY_EXPIRE
 
 async def set_user_verified(user_id):
     await users_col.update_one(
