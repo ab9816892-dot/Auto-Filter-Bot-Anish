@@ -1,28 +1,38 @@
 import os
 import re
 
-# Telegram API Credentials (Render Environment Variables se load honge)
-API_ID = int(os.environ.get("API_ID", "0"))
-API_HASH = os.environ.get("API_HASH", "")
+# Telegram API Setup
+API_ID = int(os.environ.get("API_ID", "39972309"))
+API_HASH = os.environ.get("API_HASH", "dd6e47a51f4f934ed21d346f78aae407")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+BOT_USERNAME = os.environ.get("BOT_USERNAME", "")
+ADMINS = [int(admin) for admin in os.environ.get("ADMINS", "").split() if admin]
 
-# --- Dual MongoDB Setup ---
-DATABASE_URI_1 = os.environ.get(
-    "DATABASE_URI_1", 
-    "mongodb+srv://s78890881_db_user:QzK0cTkyeAjb1qHq@cluster0.tjx6mjc.mongodb.net/?appName=Cluster0"
+# Database & Channel Configuration
+DATABASE_URI = os.environ.get("DATABASE_URI", "mongodb+srv://ab9816892_db_user:Fdohpq7hpwb7wLrW@cluster0.yogzcqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+DATABASE_NAME = os.environ.get("DATABASE_NAME", "Cluster0")
+CHANNELS = [int(ch) for ch in os.environ.get("CHANNELS", "-1004240578315").split() if ch]
+UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1004240578315"))
+LOG_CHANNEL = int(os.environ.get("LOG_CHANNEL", "0"))
+
+# TMDb Metadata Integration
+TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "c357c290aea604400f0d2b8e198db943")
+AUTO_POST = os.environ.get("AUTO_POST", "True").lower() == "true"
+
+# 24-Hour Shortlink Token System
+USE_SHORTLINK = os.environ.get("USE_SHORTLINK", "False").lower() == "true"
+SHORTLINK_URL = os.environ.get("SHORTLINK_URL", "shareus.io")
+SHORTLINK_API = os.environ.get("SHORTLINK_API", "")
+VERIFY_EXPIRE = int(os.environ.get("VERIFY_EXPIRE", 86400))  # 86400 sec = 24 Hours
+
+# Universal Custom File Caption
+CUSTOM_FILE_CAPTION = os.environ.get(
+    "CUSTOM_FILE_CAPTION",
+    """🎬 **{file_name}**
+
+📦 **Size :** `{file_size}`
+🎧 **Audio :** Multi / Dual Audio
+🌟 **Channel :** @{bot_username}"""
 )
-DATABASE_URI_2 = os.environ.get("DATABASE_URI_2", "")  # Overflow Database (Optional)
-DATABASE_NAME = os.environ.get("DATABASE_NAME", "AutoFilterBot")
 
-# --- Force Subscription ---
-raw_force_sub = os.environ.get("FORCE_SUB_CHANNEL", "-1002855667443").strip()
-FORCE_SUB_CHANNEL = int(raw_force_sub) if raw_force_sub.startswith("-100") else raw_force_sub
-FORCE_SUB_LINK = os.environ.get("FORCE_SUB_LINK", "https://t.me/")  # Apne Force Sub channel ka t.me link yahan dalein
-
-# --- Movie Storage Channels ---
-raw_channels = os.environ.get("CHANNELS", "-1003968479864")
-CHANNELS = [int(x) for x in re.split(r'[,\s]+', raw_channels.strip()) if x]
-
-# --- Bot Admins ---
-raw_admins = os.environ.get("ADMINS", "7067885693")
-ADMINS = [int(x) for x in re.split(r'[,\s]+', raw_admins.strip()) if x]
+MAX_RESULTS = int(os.environ.get("MAX_RESULTS", 10))
