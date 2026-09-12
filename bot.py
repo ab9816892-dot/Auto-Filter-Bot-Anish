@@ -1,25 +1,25 @@
 import os
+import re
 import random
 import asyncio
 import urllib.parse
 import logging
-from pyrogram import Client, filters, errors, idle
+from pyrogram import Client, filters, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-import config
-from database import db_instance
+from motor.motor_asyncio import AsyncIOMotorClient
 
 logging.basicConfig(level=logging.INFO)
 
 # ==========================================
-# 1. CONFIG LOADER (SAFE FALLBACKS)
+# 1. CONFIGURATION
 # ==========================================
-API_ID = getattr(config, "API_ID", None)
-API_HASH = getattr(config, "API_HASH", None)
-BOT_TOKEN = getattr(config, "BOT_TOKEN", None)
-BOT_USERNAME = getattr(config, "BOT_USERNAME", "BoultFlixMovieBot")
-ADMINS = getattr(config, "ADMINS", [])
-CHANNELS = getattr(config, "CHANNELS", [])
-LOG_CHANNEL = getattr(config, "LOG_CHANNEL", None) or getattr(config, "LOG_CHAT", None) or -1004240578315
+API_ID = 39972309
+API_HASH = "dd6e47a51f4f934ed21d346f78aae407"
+BOT_TOKEN = "8520883339:AAG-ZmU0e2FiehtEoiZtLuCl852bVMydgVE"
+BOT_USERNAME = "BoultFlixMovieBot"
+ADMINS = [7908289094]
+LOG_CHANNEL = -1004240578315
+MONGO_URI = "mongodb+srv://ab9816892_db_user:anish12345@cluster0.yogzcqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 
 START_PIC = "https://i.ibb.co/PZtMPSKf/boultflix-popcorn-cart.webp"
 UPDATES_CHANNEL_URL = "https://t.me/+f-k01NScSxEyNzc1"
@@ -31,6 +31,12 @@ REACTION_EMOJIS = [
     "👾", "✨", "🤙", "🥂", "🎬", "🏆", "💎", "👻"
 ]
 
+# MongoDB Connection
+mongo_client = AsyncIOMotorClient(MONGO_URI)
+db = mongo_client["Cluster0"]
+files_col = db["Telegram_Files"]
+users_col = db["Users"]
+
 app = Client(
     "BoultFlixMovieBot",
     api_id=API_ID,
@@ -39,32 +45,23 @@ app = Client(
 )
 
 # ==========================================
-# 2. RENDER PORT KEEP-ALIVE SERVER (ZERO PIP DEPS)
+# 2. RENDER PORT KEEP-ALIVE SERVER
 # ==========================================
-async def handle_http_request(reader, writer):
-    response = (
-        "HTTP/1.1 200 OK\r\n"
-        "Content-Type: text/plain\r\n"
-        "Content-Length: 26\r\n"
-        "Connection: close\r\n\r\n"
-        "BoultFlix Bot Active 24/7!"
-    )
-    writer.write(response.encode("utf-8"))
+async def handle_http(reader, writer):
+    res = "HTTP/1.1 200 OK\r\nContent-Length: 14\r\n\r\nBoultFlix Live"
+    writer.write(res.encode("utf-8"))
     await writer.drain()
     writer.close()
 
 async def start_web_server():
     port = int(os.environ.get("PORT", 8080))
     try:
-        server = await asyncio.start_server(handle_http_request, "0.0.0.0", port)
-        print(f"🌐 Keep-Alive Web Server started on port {port}")
-        return server
-    except Exception as e:
-        print(f"⚠️ Web server notice: {e}")
-        return None
+        await asyncio.start_server(handle_http, "0.0.0.0", port)
+    except Exception:
+        pass
 
 # ==========================================
-# 3. BACKGROUND UTILITIES (REACTION & USER LOG)
+# 3. HELPER FUNCTIONS
 # ==========================================
 async def send_reaction(message):
     try:
@@ -72,21 +69,23 @@ async def send_reaction(message):
     except Exception:
         pass
 
-async def log_new_user(user):
+async def log_user(user):
     try:
-        is_new = await db_instance.add_user(user.id, user.first_name)
-        if is_new and LOG_CHANNEL:
-            username_text = f"@{user.username}" if user.username else "Nᴏɴᴇ"
-            log_text = (
-                f"#NewUser 🍿\n\n"
-                f"👤 <b>Nᴀᴍᴇ:</b> {user.mention}\n"
-                f"🆔 <b>ID:</b> <code>{user.id}</code>\n"
-                f"🌐 <b>Usᴇʀɴᴀᴍᴇ:</b> {username_text}\n"
-                f"⚡ <b>Sᴛᴀᴛᴜs:</b> Bᴏᴛ Sᴛᴀʀᴛᴇᴅ"
-            )
-            await app.send_message(LOG_CHANNEL, log_text)
-    except Exception as e:
-        print(f"⚠️ User Log Error: {e}")
+        existing = await users_col.find_one({"user_id": user.id})
+        if not existing:
+            await users_col.insert_one({"user_id": user.id, "name": user.first_name})
+            if LOG_CHANNEL:
+                username_txt = f"@{user.username}" if user.username else "None"
+                log_text = (
+                    f"#NewUser 🍿\n\n"
+                    f"👤 <b>Nᴀᴍᴇ:</b> {user.mention}\n"
+                    f"🆔 <b>ID:</b> <code>{user.id}</code>\n"
+                    f"🌐 <b>Usᴇʀɴᴀᴍᴇ:</b> {username_txt}\n"
+                    f"⚡ <b>Sᴛᴀᴛᴜs:</b> Bᴏᴛ Sᴛᴀʀᴛᴇᴅ"
+                )
+                await app.send_message(LOG_CHANNEL, log_text)
+    except Exception:
+        pass
 
 # ==========================================
 # 4. /START HANDLER
@@ -95,7 +94,7 @@ async def log_new_user(user):
 async def start_handler(client, message):
     asyncio.create_task(send_reaction(message))
     user = message.from_user
-    asyncio.create_task(log_new_user(user))
+    asyncio.create_task(log_user(user))
     
     caption = (
         f"Hᴇʏ 🍿 <b>{user.mention}</b> 🥷\n\n"
@@ -122,92 +121,77 @@ async def start_handler(client, message):
         await message.reply_text(text=caption, reply_markup=buttons)
 
 # ==========================================
-# 5. REVERSE ULTRA-FAST /INDEX HANDLER
+# 5. MOVIE SEARCH ENGINE (DIRECT MONGODB QUERY)
 # ==========================================
-async def execute_indexing(client, status_msg, target_chat, max_id):
+@app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about"]))
+async def search_movie(client, message):
+    asyncio.create_task(send_reaction(message))
+
+    raw_query = message.text.strip()
+    user = message.from_user
+    
+    # Clean Query for flexible Regex matching
+    clean_query = re.sub(r"[:_.\-+!?()\[\]]", " ", raw_query)
+    words = clean_query.split()
+    regex_pattern = ".*".join([re.escape(w) for w in words if len(w) > 0])
+    
+    results = []
     try:
-        total_indexed = 0
-        scanned_count = 0
-        batch_size = 200
-
-        await status_msg.edit_text(
-            f"⚡ <b>Iɴᴅᴇxɪɴɢ Sᴛᴀʀᴛᴇᴅ!</b>\n\n"
-            f"📊 <b>Tᴏᴛᴀʟ Mᴇssᴀɢᴇs ᴛᴏ Sᴄᴀɴ:</b> <code>{max_id}</code>\n"
-            f"📦 <b>Iɴᴅᴇxᴇᴅ Fɪʟᴇs:</b> <code>0</code>"
-        )
-
-        for start_id in range(max_id, 0, -batch_size):
-            id_list = list(range(start_id, max(0, start_id - batch_size), -1))
-            
-            try:
-                messages = await client.get_messages(target_chat, message_ids=id_list)
-            except errors.FloodWait as fw:
-                await asyncio.sleep(fw.value + 1)
-                messages = await client.get_messages(target_chat, message_ids=id_list)
-            except Exception:
-                continue
-
-            for msg in messages:
-                if not msg:
-                    continue
-
-                scanned_count += 1
-                media = msg.video or msg.document
-                if not media:
-                    continue
-
-                if getattr(media, "file_size", 0) >= (100 * 1024 * 1024):
-                    try:
-                        await db_instance.save_file(media)
-                        total_indexed += 1
-                    except Exception:
-                        pass
-
-            if scanned_count % 1500 < batch_size or scanned_count >= max_id:
-                percentage = min(100.0, round((scanned_count / max_id) * 100, 1))
-                try:
-                    await status_msg.edit_text(
-                        f"⚡ <b>Iɴᴅᴇxɪɴɢ Iɴ Pʀᴏɢʀᴇss ({percentage}%)...</b>\n\n"
-                        f"📊 <b>Sᴄᴀɴɴᴇᴅ:</b> <code>{scanned_count}/{max_id}</code>\n"
-                        f"📦 <b>Iɴᴅᴇxᴇᴅ Fɪʟᴇs:</b> <code>{total_indexed}</code>\n"
-                        f"🚀 <i>Processing live files...</i>"
-                    )
-                except Exception:
-                    pass
-
-            await asyncio.sleep(0.05)
-
-        await status_msg.edit_text(
-            f"🎉 <b>Iɴᴅᴇxɪɴɢ 100% Cᴏᴍᴘʟᴇᴛᴇ!</b>\n\n"
-            f"✅ <b>Tᴏᴛᴀʟ Vɪᴅᴇᴏs Iɴᴅᴇxᴇᴅ:</b> <code>{total_indexed}</code>\n"
-            f"⚡ <b>Sᴛᴀᴛᴜs:</b> Ready for instant search!"
-        )
-
+        cursor = files_col.find(
+            {"file_name": {"$regex": regex_pattern, "$options": "i"}}
+        ).limit(10)
+        
+        async for doc in cursor:
+            results.append(doc)
     except Exception as e:
-        await status_msg.edit_text(f"❌ <b>Iɴᴅᴇxɪɴɢ Fᴀɪʟᴇᴅ:</b> <code>{e}</code>")
+        print(f"MongoDB Search Error: {e}")
 
-@app.on_message(filters.command("index") & filters.private)
-async def manual_index_handler(client, message):
-    user_id = message.from_user.id
-    if user_id not in ADMINS:
-        await message.reply_text("⛔ <b>Aᴄᴄᴇss Dᴇɴɪᴇᴅ! Yᴏᴜ ᴀʀᴇ ɴᴏᴛ ᴀɴ Aᴅᴍɪɴ.</b>")
+    # No Results Found Fallback
+    if not results:
+        google_query_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(raw_query)}"
+        
+        no_results_text = (
+            f"<b>Sᴏʀʀʏ {user.first_name}</b>, <b>ɴᴏ ғɪʟᴇs ᴡᴇʀᴇ ғᴏᴜɴᴅ ғᴏʀ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ</b> <code>{raw_query}</code> 🙁\n\n"
+            f"<b>Cʜᴇᴄᴋ ʏᴏᴜʀ sᴘᴇʟʟɪɴɢ ɪɴ Gᴏᴏɢʟᴇ ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ</b> 😃\n\n"
+            f"📝 <b>Mᴏᴠɪᴇ ʀᴇǫᴜᴇsᴛ ғᴏʀᴍᴀᴛ</b> 👇\n\n"
+            f"⚜️ <b>E x ᴀ ᴍ ᴘ ʟ ᴇ :</b> <code>Jawan</code> ᴏʀ <code>Jawan 2023</code>\n\n"
+            f"📝 <b>Sᴇʀɪᴇs ʀᴇǫᴜᴇsᴛ ғᴏʀᴍᴀᴛ</b> 👇\n\n"
+            f"⚜️ <b>E x ᴀ ᴍ ᴘ ʟ ᴇ :</b> <code>Loki S01</code> ᴏʀ <code>Loki S01E04</code> ᴏʀ <code>Lucifer S03E24</code>\n\n"
+            f"🚯 <b>Dᴏɴ'ᴛ ᴜsᴇ ➡️</b> <code>':( ! , . /)</code>\n\n"
+            f"📌 <i>Iғ ʏᴏᴜʀ sᴘᴇʟʟɪɴɢ ᴀɴᴅ ғᴏʀᴍᴀᴛ ɪs ᴄᴏʀʀᴇᴄᴛ ᴛʜᴇɴ ᴘʟᴇᴀsᴇ ʀᴇᴘᴏʀᴛ ᴛᴏ ᴏᴜʀ sᴜᴘᴘᴏʀᴛ ᴛᴇᴀᴍ 👇</i>"
+        )
+        
+        action_buttons = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🔍 Cʜᴇᴄᴋ Sᴘᴇʟʟɪɴɢ Oɴ Gᴏᴏɢʟᴇ 🔍", url=google_query_url)
+            ],
+            [
+                InlineKeyboardButton("🚀 Rᴇᴘᴏʀᴛ Tᴏ Sᴜᴘᴘᴏʀᴛ Tᴇᴀᴍ 🚀", url=SUPPORT_BOT_URL)
+            ]
+        ])
+        
+        await message.reply_text(
+            text=no_results_text,
+            reply_markup=action_buttons,
+            disable_web_page_preview=True
+        )
         return
 
-    status_msg = await message.reply_text("🔄 <b>Cᴀʟᴄᴜʟᴀᴛɪɴɢ Cʜᴀɴɴᴇʟ Mᴇssᴀɢᴇs...</b>")
-    target_chat = CHANNELS[0] if CHANNELS else -1004240578315
+    # Render Found Movie Buttons
+    buttons = []
+    for res in results:
+        file_name = res.get("file_name", "Download Video")
+        # Trim button text if too long
+        display_name = (file_name[:40] + "..") if len(file_name) > 42 else file_name
+        buttons.append([InlineKeyboardButton(f"📁 {display_name}", callback_data=f"file_{res.get('file_id')}")])
 
-    try:
-        test_msg = await client.send_message(target_chat, "🔄 Initializing...")
-        max_id = test_msg.id
-        await test_msg.delete()
-    except Exception as e:
-        await status_msg.edit_text(f"❌ <b>Cʜᴀɴɴᴇʟ Aᴄᴄᴇss Eʀʀᴏʀ:</b> <code>{e}</code>")
-        return
-
-    asyncio.create_task(execute_indexing(client, status_msg, target_chat, max_id))
+    await message.reply_text(
+        f"🎯 <b>Rᴇsᴜʟᴛs ғᴏʀ:</b> <code>{raw_query}</code>\n⚡ <b>Fᴏᴜɴᴅ Fɪʟᴇs:</b> <code>{len(results)}</code>",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
 
 # ==========================================
-# 6. CALLBACK HANDLERS
+# 6. CALLBACK HANDLER & FILE DELIVERY
 # ==========================================
 @app.on_callback_query()
 async def bot_callbacks(client, query: CallbackQuery):
@@ -308,80 +292,15 @@ async def bot_callbacks(client, query: CallbackQuery):
         try:
             await client.send_cached_media(chat_id=query.from_user.id, file_id=file_id)
         except Exception:
-            await query.answer("❌ File pathate somossya hoyeche!", show_alert=True)
+            await query.answer("❌ File pathate somosya hoyeche!", show_alert=True)
 
 # ==========================================
-# 7. AUTO-FILTER & NO RESULTS HANDLER
-# ==========================================
-@app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about", "index"]))
-async def search_movie(client, message):
-    asyncio.create_task(send_reaction(message))
-
-    query = message.text.strip()
-    user = message.from_user
-    
-    try:
-        results, total = await db_instance.get_search_results(query, max_results=10)
-    except Exception:
-        results, total = [], 0
-    
-    if not results:
-        google_query_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(query)}"
-        
-        no_results_text = (
-            f"<b>Sᴏʀʀʏ {user.first_name}</b>, <b>ɴᴏ ғɪʟᴇs ᴡᴇʀᴇ ғᴏᴜɴᴅ ғᴏʀ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ</b> <code>{query}</code> 🙁\n\n"
-            f"<b>Cʜᴇᴄᴋ ʏᴏᴜʀ sᴘᴇʟʟɪɴɢ ɪɴ Gᴏᴏɢʟᴇ ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ</b> 😃\n\n"
-            f"📝 <b>Mᴏᴠɪᴇ ʀᴇǫᴜᴇsᴛ ғᴏʀᴍᴀᴛ</b> 👇\n\n"
-            f"⚜️ <b>E x ᴀ ᴍ ᴘ ʟ ᴇ :</b> <code>Jawan</code> ᴏʀ <code>Jawan 2023</code>\n\n"
-            f"📝 <b>Sᴇʀɪᴇs ʀᴇǫᴜᴇsᴛ ғᴏʀᴍᴀᴛ</b> 👇\n\n"
-            f"⚜️ <b>E x ᴀ ᴍ ᴘ ʟ ᴇ :</b> <code>Loki S01</code> ᴏʀ <code>Loki S01E04</code> ᴏʀ <code>Lucifer S03E24</code>\n\n"
-            f"🚯 <b>Dᴏɴ'ᴛ ᴜsᴇ ➡️</b> <code>':( ! , . /)</code>\n\n"
-            f"📌 <i>Iғ ʏᴏᴜʀ sᴘᴇʟʟɪɴɢ ᴀɴᴅ ғᴏʀᴍᴀᴛ ɪs ᴄᴏʀʀᴇᴄᴛ ᴛʜᴇɴ ᴘʟᴇᴀsᴇ ʀᴇᴘᴏʀᴛ ᴛᴏ ᴏᴜʀ sᴜᴘᴘᴏʀᴛ ᴛᴇᴀᴍ 👇</i>"
-        )
-        
-        action_buttons = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("🔍 Cʜᴇᴄᴋ Sᴘᴇʟʟɪɴɢ Oɴ Gᴏᴏɢʟᴇ 🔍", url=google_query_url)
-            ],
-            [
-                InlineKeyboardButton("🚀 Rᴇᴘᴏʀᴛ Tᴏ Sᴜᴘᴘᴏʀᴛ Tᴇᴀᴍ 🚀", url=SUPPORT_BOT_URL)
-            ]
-        ])
-        
-        await message.reply_text(
-            text=no_results_text,
-            reply_markup=action_buttons,
-            disable_web_page_preview=True
-        )
-        return
-        
-    btns = [
-        [InlineKeyboardButton(f"📁 {res.get('file_name', 'Download')}", callback_data=f"file_{res.get('file_id', '')}")]
-        for res in results
-    ]
-    await message.reply_text(
-        f"🎯 <b>Rᴇsᴜʟᴛs ғᴏʀ:</b> <code>{query}</code>\n⚡ <b>Tᴏᴛᴀʟ ғɪʟᴇs:</b> {total}",
-        reply_markup=InlineKeyboardMarkup(btns)
-    )
-
-# ==========================================
-# 8. REAL-TIME INDEXER (FOR NEW UPLOADS)
-# ==========================================
-@app.on_message(filters.channel & (filters.document | filters.video | filters.audio))
-async def channel_indexer(client, message):
-    if message.chat.id in CHANNELS:
-        media = message.document or message.video or message.audio
-        if media and getattr(media, "file_size", 0) >= (100 * 1024 * 1024):
-            await db_instance.save_file(media)
-
-# ==========================================
-# 9. MAIN RUNNER (BOT + LOG + WEB SERVER)
+# 7. MAIN ENTRY POINT
 # ==========================================
 async def main():
     await app.start()
     print("🚀 BoultFlix Bot Started Successfully!")
 
-    # Startup Notification to Log Channel
     if LOG_CHANNEL:
         try:
             startup_text = (
@@ -391,13 +310,10 @@ async def main():
                 f"🟢 <b>Sᴛᴀᴛᴜs:</b> Oɴʟɪɴᴇ & Rᴇᴀᴅʏ"
             )
             await app.send_message(LOG_CHANNEL, startup_text)
-        except Exception as e:
-            print(f"⚠️ Startup Log Error: {e}")
+        except Exception:
+            pass
 
-    # Start Keep-Alive Server
     await start_web_server()
-
-    # Keep Bot Alive
     await idle()
     await app.stop()
 
