@@ -1,10 +1,5 @@
 pyrofork
 tgcrypto
-pymongo[srv]
-motor
-aiohttp
-aiofiles
-requests
+pymongo
 dnspython
-Flask
-gunicorn
+motor
