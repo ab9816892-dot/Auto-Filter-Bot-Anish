@@ -10,14 +10,14 @@ from database import db_instance
 
 logging.basicConfig(level=logging.INFO)
 
-# Banner Poster Link
+# Banner Poster Link (High-Speed JPG)
 START_PIC = "https://i.ibb.co/PZtMPSKf/boultflix-popcorn-cart.webp"
 
 # Channel & Support Links
 UPDATES_CHANNEL_URL = "https://t.me/+f-k01NScSxEyNzc1"
 SUPPORT_BOT_URL = "https://t.me/BoultFlixSupportBot"
 
-# Large Positive & Trending Reactions Pool
+# Reaction Emojis
 REACTION_EMOJIS = [
     "🔥", "⚡", "❤️", "🍿", "🥰", "🎉", "🤩", "👏", 
     "👌", "🕊️", "😍", "💯", "💖", "🍓", "🍾", "😎", 
@@ -39,39 +39,58 @@ async def send_reaction(message):
         pass
 
 # ==========================================
-# 2. ADMIN /INDEX COMMAND (OPTIMIZED)
+# 1. /START HANDLER (INSTANT & NON-BLOCKING)
 # ==========================================
-@app.on_message(filters.command("index") & filters.private)
-async def manual_index_handler(client, message):
-    user_id = message.from_user.id
-    if user_id not in ADMINS:
-        await message.reply_text("⛔ <b>Aᴄᴄᴇss Dᴇɴɪᴇᴅ! Yᴏᴜ ᴀʀᴇ ɴᴏᴛ ᴀɴ Aᴅᴍɪɴ.</b>")
-        return
+@app.on_message(filters.command("start") & filters.private)
+async def start_handler(client, message):
+    asyncio.create_task(send_reaction(message))
 
-    status_msg = await message.reply_text("🔄 <b>Iɴᴅᴇxɪɴɢ Pʀᴏᴄᴇss Sᴛᴀʀᴛɪɴɢ...</b>")
-    target_chat = CHANNELS[0] if CHANNELS else -1004240578315
-
+    user = message.from_user
+    asyncio.create_task(db_instance.add_user(user.id, user.first_name))
+    
+    caption = (
+        f"Hᴇʏ 🍿 <b>{user.mention}</b> 🥷\n\n"
+        f"📍 <b>Wᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ᴡᴏʀʟᴅ's ᴄᴏᴏʟᴇsᴛ sᴇᴀʀᴄʜ ᴇɴɢɪɴᴇ! ⚡</b>\n\n"
+        f"Hᴇʀᴇ ʏᴏᴜ ᴄᴀɴ ʀᴇǫᴜᴇsᴛ ᴍᴏᴠɪᴇs & sᴇʀɪᴇs, ᴊᴜsᴛ sᴇɴᴅ ɴᴀᴍᴇ ᴡɪᴛʜ ᴘʀᴏᴘᴇʀ <b>Gᴏᴏɢʟᴇ sᴘᴇʟʟɪɴɢ</b>..!! 🫧🎬"
+    )
+    
+    buttons = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔰 Aᴅᴅ Mᴇ Tᴏ Yᴏᴜʀ Gʀᴏᴜᴘ 🔰", url=f"https://t.me/{BOT_USERNAME}?startgroup=true")
+        ],
+        [
+            InlineKeyboardButton("📢 Uᴘᴅᴀᴛᴇs Cʜᴀɴɴᴇʟ 📢", url=UPDATES_CHANNEL_URL)
+        ],
+        [
+            InlineKeyboardButton("📑 Hᴇʟᴘ", callback_data="help_menu"),
+            InlineKeyboardButton("ℹ️ Aʙᴏᴜᴛ", callback_data="about_menu")
+        ]
+    ])
+    
     try:
-        test_msg = await client.send_message(target_chat, "🔄 Calculating IDs...")
-        max_id = test_msg.id
-        await test_msg.delete()
-    except Exception as e:
-        await status_msg.edit_text(f"❌ <b>Eʀʀᴏʀ ᴀᴄᴄᴇssɪɴɢ ᴄʜᴀɴɴᴇʟ:</b> <code>{e}</code>")
-        return
+        await message.reply_photo(photo=START_PIC, caption=caption, reply_markup=buttons)
+    except Exception:
+        await message.reply_text(text=caption, reply_markup=buttons)
 
+# ==========================================
+# 2. ULTRA-FAST PARALLEL INDEXER ENGINE
+# ==========================================
+async def run_fast_indexing(client, status_msg, target_chat, max_id):
     total_indexed = 0
     batch_size = 200
-    last_update = 0
+    last_update_id = 0
 
+    # Scanning from 1 to latest ID
     for start_id in range(1, max_id + 1, batch_size):
         id_list = list(range(start_id, min(start_id + batch_size, max_id + 1)))
         
         try:
             messages = await client.get_messages(target_chat, message_ids=id_list)
         except Exception:
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.5)
             continue
 
+        db_tasks = []
         for msg in messages:
             if not msg:
                 continue
@@ -80,35 +99,58 @@ async def manual_index_handler(client, message):
             if not media:
                 continue
 
-            # Minimum 100MB filter
+            # 100MB Size Filter
             if getattr(media, "file_size", 0) >= (100 * 1024 * 1024):
-                try:
-                    await db_instance.save_file(media)
-                    total_indexed += 1
-                except Exception:
-                    pass
+                db_tasks.append(db_instance.save_file(media))
 
-        # Prottek 2000 messages por por UI update
-        if (start_id - last_update) >= 2000 or (start_id + batch_size) > max_id:
+        # Parallel Batch Save to MongoDB
+        if db_tasks:
+            results = await asyncio.gather(*db_tasks, return_exceptions=True)
+            saved_count = sum(1 for r in results if not isinstance(r, Exception))
+            total_indexed += saved_count
+
+        # Update UI every 2000 messages
+        if (start_id - last_update_id) >= 2000 or (start_id + batch_size) > max_id:
             percentage = round((min(start_id + batch_size - 1, max_id) / max_id) * 100, 1)
             try:
                 await status_msg.edit_text(
                     f"⚡ <b>Iɴᴅᴇxɪɴɢ Iɴ Pʀᴏɢʀᴇss ({percentage}%)...</b>\n\n"
                     f"📊 <b>Sᴄᴀɴɴᴇᴅ:</b> <code>{min(start_id + batch_size - 1, max_id)}/{max_id}</code>\n"
                     f"📦 <b>Iɴᴅᴇxᴇᴅ Fɪʟᴇs:</b> <code>{total_indexed}</code>\n"
-                    f"⏳ <i>Scanning active, please wait...</i>"
+                    f"🚀 <i>Ultra-fast multi-threading active...</i>"
                 )
-                last_update = start_id
+                last_update_id = start_id
             except Exception:
                 pass
 
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.1)
 
     await status_msg.edit_text(
         f"🎉 <b>Iɴᴅᴇxɪɴɢ 100% Cᴏᴍᴘʟᴇᴛᴇ!</b>\n\n"
         f"✅ <b>Tᴏᴛᴀʟ Vɪᴅᴇᴏs Iɴᴅᴇxᴇᴅ:</b> <code>{total_indexed}</code>\n"
-        f"🚀 <b>Sᴛᴀᴛᴜs:</b> Search engine fully active!"
+        f"⚡ <b>Sᴛᴀᴛᴜs:</b> Search engine fully active & ready!"
     )
+
+@app.on_message(filters.command("index") & filters.private)
+async def manual_index_handler(client, message):
+    user_id = message.from_user.id
+    if user_id not in ADMINS:
+        await message.reply_text("⛔ <b>Aᴄᴄᴇss Dᴇɴɪᴇᴅ! Yᴏᴜ ᴀʀᴇ ɴᴏᴛ ᴀɴ Aᴅᴍɪɴ.</b>")
+        return
+
+    status_msg = await message.reply_text("🔄 <b>Iɴɪᴛɪᴀᴛɪɴɢ Uʟᴛʀᴀ-Fᴀsᴛ Iɴᴅᴇxᴇʀ...</b>")
+    target_chat = CHANNELS[0] if CHANNELS else -1004240578315
+
+    try:
+        test_msg = await client.send_message(target_chat, "🔄 Calculating IDs...")
+        max_id = test_msg.id
+        await test_msg.delete()
+    except Exception as e:
+        await status_msg.edit_text(f"❌ <b>Eʀʀᴏʀ:</b> <code>{e}</code>")
+        return
+
+    # Run in background task so bot stays 100% responsive
+    asyncio.create_task(run_fast_indexing(client, status_msg, target_chat, max_id))
 
 # ==========================================
 # 3. CALLBACK HANDLERS
@@ -219,7 +261,7 @@ async def bot_callbacks(client, query: CallbackQuery):
 # ==========================================
 @app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about", "index"]))
 async def search_movie(client, message):
-    await send_reaction(message)
+    asyncio.create_task(send_reaction(message))
 
     query = message.text.strip()
     user = message.from_user
@@ -269,7 +311,7 @@ async def search_movie(client, message):
     )
 
 # ==========================================
-# 5. CHANNEL REAL-TIME AUTO-INDEXER
+# 5. REAL-TIME INDEXER (FOR NEW UPLOADS)
 # ==========================================
 @app.on_message(filters.channel & (filters.document | filters.video | filters.audio))
 async def channel_indexer(client, message):
