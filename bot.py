@@ -1,5 +1,6 @@
 import os
 import random
+import asyncio
 import urllib.parse
 import logging
 from pyrogram import Client, filters
@@ -31,7 +32,6 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-# Safe Reaction Function
 async def send_reaction(message):
     try:
         await message.react(emoji=random.choice(REACTION_EMOJIS))
@@ -76,7 +76,73 @@ async def start_handler(client, message):
         await message.reply_text(text=caption, reply_markup=buttons)
 
 # ==========================================
-# 2. CALLBACK HANDLERS
+# 2. ADMIN /INDEX COMMAND
+# ==========================================
+@app.on_message(filters.command("index") & filters.private)
+async def manual_index_handler(client, message):
+    user_id = message.from_user.id
+    if user_id not in ADMINS:
+        await message.reply_text("⛔ <b>Aᴄᴄᴇss Dᴇɴɪᴇᴅ! Yᴏᴜ ᴀʀᴇ ɴᴏᴛ ᴀɴ Aᴅᴍɪɴ.</b>")
+        return
+
+    status_msg = await message.reply_text("🔄 <b>Iɴᴅᴇxɪɴɢ Pʀᴏᴄᴇss Iɴɪᴛɪᴀᴛɪɴɢ... Pʟᴇᴀsᴇ Wᴀɪᴛ!</b>")
+    target_chat = CHANNELS[0] if CHANNELS else -1004240578315
+
+    try:
+        test_msg = await client.send_message(target_chat, "🔄 Initializing Indexing...")
+        max_id = test_msg.id
+        await test_msg.delete()
+    except Exception as e:
+        await status_msg.edit_text(f"❌ <b>Eʀʀᴏʀ ᴀᴄᴄᴇssɪɴɢ ᴄʜᴀɴɴᴇʟ:</b> <code>{e}</code>")
+        return
+
+    total_indexed = 0
+    batch_size = 200
+
+    for start_id in range(1, max_id + 1, batch_size):
+        id_list = list(range(start_id, min(start_id + batch_size, max_id + 1)))
+        
+        try:
+            messages = await client.get_messages(target_chat, message_ids=id_list)
+        except Exception:
+            continue
+
+        for msg in messages:
+            if not msg:
+                continue
+
+            media = msg.video or msg.document
+            if not media:
+                continue
+
+            # Minimum 100MB check
+            if getattr(media, "file_size", 0) >= (100 * 1024 * 1024):
+                try:
+                    await db_instance.save_file(media)
+                    total_indexed += 1
+                except Exception:
+                    pass
+
+        if start_id % 1000 < batch_size:
+            try:
+                await status_msg.edit_text(
+                    f"⚡ <b>Iɴᴅᴇxɪɴɢ Iɴ Pʀᴏɢʀᴇss...</b>\n\n"
+                    f"📊 <b>Sᴄᴀɴɴᴇᴅ:</b> <code>{min(start_id + batch_size - 1, max_id)}/{max_id}</code>\n"
+                    f"📦 <b>Iɴᴅᴇxᴇᴅ Fɪʟᴇs:</b> <code>{total_indexed}</code>"
+                )
+            except Exception:
+                pass
+
+        await asyncio.sleep(0.3)
+
+    await status_msg.edit_text(
+        f"🎉 <b>Iɴᴅᴇxɪɴɢ 100% Cᴏᴍᴘʟᴇᴛᴇ!</b>\n\n"
+        f"✅ <b>Tᴏᴛᴀʟ Nᴇᴡ Vɪᴅᴇᴏs Iɴᴅᴇxᴇᴅ:</b> <code>{total_indexed}</code>\n"
+        f"⚡ <b>Sᴛᴀᴛᴜs:</b> Rᴇᴀᴅʏ ᴛᴏ sᴇᴀʀᴄʜ!"
+    )
+
+# ==========================================
+# 3. CALLBACK HANDLERS
 # ==========================================
 @app.on_callback_query()
 async def bot_callbacks(client, query: CallbackQuery):
@@ -180,9 +246,9 @@ async def bot_callbacks(client, query: CallbackQuery):
             await query.answer("❌ File pathate somossya hoyeche!", show_alert=True)
 
 # ==========================================
-# 3. AUTO-FILTER & NO RESULTS HANDLER
+# 4. AUTO-FILTER & NO RESULTS HANDLER
 # ==========================================
-@app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about"]))
+@app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about", "index"]))
 async def search_movie(client, message):
     await send_reaction(message)
 
@@ -234,17 +300,17 @@ async def search_movie(client, message):
     )
 
 # ==========================================
-# 4. CHANNEL AUTO-INDEXING HANDLER
+# 5. CHANNEL REAL-TIME AUTO-INDEXER
 # ==========================================
 @app.on_message(filters.channel & (filters.document | filters.video | filters.audio))
 async def channel_indexer(client, message):
     if message.chat.id in CHANNELS:
         media = message.document or message.video or message.audio
-        if media:
+        if media and getattr(media, "file_size", 0) >= (100 * 1024 * 1024):
             await db_instance.save_file(media)
 
 # ==========================================
-# 5. MAIN ENTRY POINT
+# 6. MAIN ENTRY POINT
 # ==========================================
 if __name__ == "__main__":
     app.run()
