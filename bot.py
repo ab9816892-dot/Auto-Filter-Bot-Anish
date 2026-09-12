@@ -1,16 +1,9 @@
 import os
 import random
-import asyncio
 import urllib.parse
 import logging
-from aiohttp import web
-from pyrogram import Client, filters, idle
-from pyrogram.types import (
-    InlineKeyboardMarkup, 
-    InlineKeyboardButton, 
-    CallbackQuery, 
-    ReactionCustomEmoji
-)
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from config import API_ID, API_HASH, BOT_TOKEN, BOT_USERNAME, ADMINS, CHANNELS
 from database import db_instance
 
@@ -23,35 +16,12 @@ START_PIC = "https://i.ibb.co/PZtMPSKf/boultflix-popcorn-cart.webp"
 UPDATES_CHANNEL_URL = "https://t.me/+f-k01NScSxEyNzc1"
 SUPPORT_BOT_URL = "https://t.me/BoultFlixSupportBot"
 
-# Custom Animated Emoji IDs
-CUSTOM_EMOJI_IDS = [
-    5210956306952758910, 5461117441612462242, 5456140674028019486, 5224607267797606837,
-    5229064374403998351, 5447410659077661506, 5443038326535759644, 5467538555158943525,
-    5231200819986047254, 5449683594425410231, 5447183459602669338, 5451882707875276247,
-    5244837092042750681, 5206607081334906820, 5222079954421818267, 5458603043203327669,
-    5391112412445288650, 5269531045165816230, 5395444514028529554, 5397782960512444700,
-    5409048419211682843, 5233326571099534068, 5231449120635370684, 5278751923338490157,
-    5290017777174722330, 5231005931550030290, 5402186569006210455, 5264919878082509254,
-    5411225014148014586, 5416081784641168838, 5416117059207572332, 5424972470023104089,
-    5276032951342088188, 5294339927318739359, 5224736245665511429, 5424818078833715060,
-    5431609822288033666, 5449875686837726134, 5460795800101594035, 5231012545799666522,
-    5251203410396458957, 5271604874419647061, 5282843764451195532, 5323442290708985472,
-    5334544901428229844, 5337080053119336309, 5348125953090403204, 5359543311897998264,
-    5341498088408234504, 5375338737028841420, 5415655814079723871, 5382357040008021292,
-    5391032818111363540, 5397916757333654639, 5427168083074628963, 5438496463044752972,
-    5325547803936572038, 5217822164362739968, 5253742260054409879, 5296369303661067030,
-    5303479226882603449, 5305265301917549162, 5341715473882955310, 5361741454685256344,
-    5388632425314140043, 5386367538735104399, 5406745015365943482, 5402477260982731644,
-    5399913388845322366, 5449569374065152798, 5449449325434266744, 5409109841538994759,
-    5393512611968995988, 5413879192267805083, 5422439311196834318, 5463107823946717464,
-    5406756500108501710, 5395444784611480792, 5395695537687123235, 5406683434124859552,
-    5416041192905265756, 5460755126761312667, 5461151367559141950
-]
-
-FREE_ANIMATED_REACTIONS = [
+# Large Positive & Trending Reactions Pool
+REACTION_EMOJIS = [
     "🔥", "⚡", "❤️", "🍿", "🥰", "🎉", "🤩", "👏", 
     "👌", "🕊️", "😍", "💯", "💖", "🍓", "🍾", "😎", 
-    "👾", "✨", "🤙", "🥂", "🎬", "🏆", "💎", "👻"
+    "👾", "✨", "🤙", "🥂", "🎬", "🏆", "💎", "👻", 
+    "🚀", "👑", "🫡", "🤝", "💫", "🌟"
 ]
 
 app = Client(
@@ -61,36 +31,19 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-# Render Keep-Alive Web Server
-routes = web.RouteTableDef()
-
-@routes.get("/", allow_head=True)
-async def root_route(request):
-    return web.Response(text="BoultFlix Bot is Alive & Running 24/7!", status=200)
-
-async def web_server():
-    web_app = web.Application()
-    web_app.add_routes(routes)
-    return web_app
-
-# Background Non-blocking Reaction
-async def safe_react(message):
-    chosen_id = random.choice(CUSTOM_EMOJI_IDS)
+# Safe Reaction Function
+async def send_reaction(message):
     try:
-        await message.react(reaction=[ReactionCustomEmoji(document_id=chosen_id)])
+        await message.react(emoji=random.choice(REACTION_EMOJIS))
     except Exception:
-        try:
-            fallback = random.choice(FREE_ANIMATED_REACTIONS)
-            await message.react(emoji=fallback)
-        except Exception:
-            pass
+        pass
 
 # ==========================================
 # 1. /START HANDLER
 # ==========================================
 @app.on_message(filters.command("start") & filters.private)
 async def start_handler(client, message):
-    asyncio.create_task(safe_react(message))
+    await send_reaction(message)
 
     user = message.from_user
     try:
@@ -227,11 +180,11 @@ async def bot_callbacks(client, query: CallbackQuery):
             await query.answer("❌ File pathate somossya hoyeche!", show_alert=True)
 
 # ==========================================
-# 3. AUTO-FILTER HANDLER
+# 3. AUTO-FILTER & NO RESULTS HANDLER
 # ==========================================
 @app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about"]))
 async def search_movie(client, message):
-    asyncio.create_task(safe_react(message))
+    await send_reaction(message)
 
     query = message.text.strip()
     user = message.from_user
@@ -291,25 +244,7 @@ async def channel_indexer(client, message):
             await db_instance.save_file(media)
 
 # ==========================================
-# 5. ASYNC MAIN RUNNER (WEB SERVER + BOT)
+# 5. MAIN ENTRY POINT
 # ==========================================
-async def main():
-    # Start Telegram Bot
-    await app.start()
-    print("🚀 Bot Started & Connected to Telegram!")
-
-    # Start Aiohttp Web Server for Render Keep-Alive
-    web_server_app = await web_server()
-    runner = web.AppRunner(web_server_app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    print(f"🌐 Web Server listening on port: {port}")
-
-    # Keep bot running
-    await idle()
-    await app.stop()
-
 if __name__ == "__main__":
-    asyncio.get_event_loop().run_until_complete(main())
+    app.run()
