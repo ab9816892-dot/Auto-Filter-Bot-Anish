@@ -4,7 +4,6 @@ import time
 import random
 import asyncio
 import urllib.parse
-import urllib.request
 import logging
 from bson.objectid import ObjectId
 from aiohttp import web
@@ -15,7 +14,7 @@ from pymongo import MongoClient
 logging.basicConfig(level=logging.INFO)
 
 # ==========================================
-# 1. CONFIGURATION & CREDENTIALS
+# 1. CONFIGURATION
 # ==========================================
 API_ID = 39972309
 API_HASH = "dd6e47a51f4f934ed21d346f78aae407"
@@ -37,7 +36,7 @@ REACTION_EMOJIS = [
     "🚀", "👑", "🫡", "🤝", "💫", "🌟"
 ]
 
-# MongoDB Connection (52,899+ Indexed Movies)
+# MongoDB Connection
 MONGO_URI = "mongodb+srv://ab9816892_db_user:anish12345@cluster0.yogzcqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 db = mongo_client["Cluster0"]
@@ -45,7 +44,7 @@ files_col = db["Telegram_Files"]
 users_col = db["Users"]
 
 app = Client(
-    "BoultFlix_Rpeditz_Final",
+    "BoultFlix_Rpeditz_Fixed",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
@@ -55,7 +54,7 @@ app = Client(
 # 2. RENDER PORT KEEP-ALIVE SERVER
 # ==========================================
 async def handle_ping(request):
-    return web.Response(text="BoultFlix Bot is Live 24/7!", status=200)
+    return web.Response(text="BoultFlix Bot 24/7 Live", status=200)
 
 async def start_web_server():
     server = web.Application()
@@ -118,14 +117,13 @@ def db_get_file_by_id(doc_id):
         return None
 
 # ==========================================
-# 4. /START HANDLER (IMAGE 3 & FILE LINK DELIVERY)
+# 4. /START HANDLER
 # ==========================================
 @app.on_message(filters.command("start") & filters.private)
 async def start_handler(client, message):
     asyncio.create_task(send_reaction(message))
     user = message.from_user
 
-    # Handle Deep Links (When user clicks on file links in search result)
     if len(message.command) > 1 and message.command[1].startswith("file_"):
         doc_id = message.command[1].replace("file_", "")
         doc = await asyncio.to_thread(db_get_file_by_id, doc_id)
@@ -145,7 +143,6 @@ async def start_handler(client, message):
             except Exception as e:
                 print(f"File Delivery Error: {e}", flush=True)
 
-    # Standard /start Greeting
     asyncio.create_task(asyncio.to_thread(db_add_user, user.id, user.first_name))
     caption = (
         f"Hᴇʏ 🍿 <b>{user.mention}</b> 🥷\n\n"
@@ -165,7 +162,7 @@ async def start_handler(client, message):
         await message.reply_text(text=caption, reply_markup=buttons)
 
 # ==========================================
-# 5. RPEDITZ STYLE MOVIE SEARCH (IMAGE 6 & IMAGE 2)
+# 5. RPEDITZ STYLE MOVIE SEARCH
 # ==========================================
 @app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about"]))
 async def search_movie(client, message):
@@ -182,7 +179,6 @@ async def search_movie(client, message):
     results, total = await asyncio.to_thread(db_search_movies, regex_pattern, 0, 10)
     time_taken = f"{time.time() - start_time:.2f}"
 
-    # Exact Image 2 No-Results UI
     if not results:
         google_query_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(raw_query)}"
         no_results_text = (
@@ -202,7 +198,6 @@ async def search_movie(client, message):
         await message.reply_text(text=no_results_text, reply_markup=action_buttons, disable_web_page_preview=True)
         return
 
-    # Exact Image 6 RPEDITZ Results UI
     res_text = (
         f"<b>TITLE :</b> <code>{raw_query}</code>\n"
         f"📁 <b>TOTAL FILES :</b> <code>{total}</code>\n"
@@ -212,19 +207,16 @@ async def search_movie(client, message):
         f"<b><u>Your Requested Files Are Here</u></b>\n\n"
     )
 
-    doc_ids_all = []
     for idx, doc in enumerate(results, start=1):
         doc_id = str(doc.get("_id"))
-        doc_ids_all.append(doc_id)
         f_name = doc.get("file_name", "Movie File")
         f_size = format_size(doc.get("file_size", 0))
         link = f"https://t.me/{BOT_USERNAME}?start=file_{doc_id}"
         res_text += f"{idx}. <a href='{link}'>[{f_size}] {f_name}</a>\n\n"
 
-    send_all_data = "sendall_" + "_".join(doc_ids_all[:5])
-
+    # Safe button callback data to prevent ButtonDataInvalid error
     rpeditz_buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚡ SEND ALL", callback_data=send_all_data)],
+        [InlineKeyboardButton("⚡ SEND ALL", callback_data="sendall_files")],
         [
             InlineKeyboardButton("QUALITY", callback_data="btn_filter"),
             InlineKeyboardButton("LANGUAGE", callback_data="btn_filter"),
@@ -244,7 +236,7 @@ async def search_movie(client, message):
     )
 
 # ==========================================
-# 6. CALLBACK HANDLERS (IMAGE 3, 4, 5 & SEND ALL)
+# 6. CALLBACK HANDLERS
 # ==========================================
 @app.on_callback_query()
 async def bot_callbacks(client, query: CallbackQuery):
@@ -320,13 +312,7 @@ async def bot_callbacks(client, query: CallbackQuery):
         disclaimer_text = (
             "ᴛʜɪꜱ ɪꜱ ᴀɴ ᴏᴘᴇɴ ꜱᴏᴜʀᴄᴇ ᴘʀᴏᴊᴇᴄᴛ.\n\n"
             "ᴀʟʟ ᴛʜᴇ ꜰɪʟᴇꜱ ɪɴ ᴛʜɪꜱ ʙᴏᴛ ᴀʀᴇ ꜰʀᴇᴇʟʏ ᴀᴠᴀɪʟᴀʙʟᴇ ᴏɴ ᴛʜᴇ ɪɴᴛᴇʀɴᴇᴛ ᴏʀ ᴘᴏꜱᴛᴇᴅ ʙʏ ꜱᴏᴍᴇʙᴏᴅʏ ᴇʟꜱᴇ. "
-            "ᴊᴜꜱᴛ ꜰᴏʀ ᴇᴀꜱʏ ꜱᴇᴀʀᴄʜɪɴɢ ᴛʜɪꜱ ʙᴏᴛ ɪꜱ ɪɴᴅᴇxɪɴɢ ꜰɪʟᴇꜱ ᴡʜɪᴄʜ ᴀʀᴇ ᴀʟʀᴇᴀᴅʏ ᴜᴘʟᴏᴀᴅᴇᴅ ᴏɴ ᴛᴇʟᴇɢʀᴀᴍ. "
-            "ᴡᴇ ʀᴇꜱᴘᴇᴄᴛ ᴀʟʟ ᴛʜᴇ ᴄᴏᴘʏʀɪɢʜᴛ ʟᴀᴡꜱ ᴀɴᴅ ᴡᴏʀᴋꜱ ɪɴ ᴄᴏᴍᴘʟɪᴀɴᴄᴇ ᴡɪᴛʜ ᴅᴍᴄᴀ ᴀɴᴅ ᴇᴜᴄᴅ. "
-            "ɪꜰ ᴀɴʏᴛʜɪɴɢ ɪꜱ ᴀɢᴀɪɴꜱᴛ ʟᴀᴡ ᴘʟᴇᴀꜱᴇ ᴄᴏɴᴛᴀᴄᴛ ᴍᴇ ꜱᴏ ᴛʜᴀᴛ ɪᴛ ᴄᴀɴ ʙᴇ ʀᴇᴍᴏᴠᴇᴅ ᴀꜱᴀᴘ. "
-            "ɪᴛ ɪꜱ ꜰᴏʙɪʙʙᴇɴ ᴛᴏ ᴅᴏᴡɴʟᴏᴀᴅ, ꜱᴛʀᴇᴀᴍ, ʀᴇᴘʀᴏᴅᴜᴄᴇ, ꜱʜᴀʀᴇ ᴏʀ ᴄᴏɴꜱᴜᴍᴇ ᴄᴏɴᴛᴇɴᴛ ᴡɪᴛʜᴏᴜᴛ ᴇxᴘʟɪᴄɪᴛ "
-            "ᴘᴇʀᴍɪꜱꜱɪᴏɴ ꜰʀᴏᴍ ᴛʜᴇ ᴄᴏɴᴛᴇɴᴛ ᴄʀᴇᴀᴛᴏʀ or ʟᴇɢᴀʟ ᴄᴏᴘʏʀɪɢʜᴛ ʜᴏʟᴅᴇʀ. "
-            "ɪꜰ ʏᴏᴜ ʙᴇʟɪᴇᴠᴇ ᴛʜɪꜱ ʙᴏᴛ ɪꜱ ᴠɪᴏʟᴀᴛɪɴɢ ʏᴏᴜʀ ɪɴᴛᴇʟʟᴇᴄᴛᴜᴀʟ ᴘʀᴏᴘᴇʀᴛʏ, ᴄᴏɴᴛᴀᴄᴛ ᴛʜᴇ ʀᴇꜱᴘᴇᴄᴛɪᴠᴇ ᴄʜᴀɴɴᴇʟꜱ ꜰᴏʀ ʀᴇᴍᴏᴠᴀʟ. "
-            "ᴛʜᴇ ʙᴏᴛ ᴅᴏᴇꜱ ɴᴏᴛ ᴏᴡɴ ᴀɴʏ ᴏꜰ ᴛHᴇꜱᴇ ᴄᴏɴᴛᴇɴᴛꜱ, ɪᴛ ᴏɴʟʏ ɪɴᴅᴇx ᴛʜᴇ ꜰɪʟᴇꜱ ꜰʀᴏᴍ ᴛᴇʟᴇɢʀᴀᴍ."
+            "ᴊᴜꜱᴛ ꜰᴏʀ ᴇᴀꜱʏ ꜱᴇᴀʀᴄʜɪɴɢ ᴛʜɪꜱ ʙᴏᴛ ɪꜱ ɪɴᴅᴇxɪɴɢ ꜰɪʟᴇꜱ ᴡHɪᴄʜ ᴀʀᴇ ᴀʟʀᴇᴀᴅʏ ᴜᴘʟᴏᴀᴅᴇᴅ ᴏɴ ᴛᴇʟᴇɢʀᴀᴍ."
         )
         disclaimer_buttons = InlineKeyboardMarkup([
             [InlineKeyboardButton("⇋ Bᴀᴄᴋ ⇋", callback_data="about_menu")]
@@ -336,11 +322,11 @@ async def bot_callbacks(client, query: CallbackQuery):
         except Exception:
             await query.message.edit_text(text=disclaimer_text, reply_markup=disclaimer_buttons)
 
-    elif data.startswith("sendall_"):
-        await query.answer("Sending all files to your chat... 🍿")
-        doc_ids = data.replace("sendall_", "").split("_")
-        for doc_id in doc_ids:
-            doc = await asyncio.to_thread(db_get_file_by_id, doc_id)
+    elif data == "sendall_files":
+        await query.answer("Fetching top results for you... 🍿")
+        # Send top 3 files safely
+        cursor = files_col.find().limit(3)
+        for doc in cursor:
             if doc and doc.get("file_id"):
                 file_btn = InlineKeyboardMarkup([
                     [InlineKeyboardButton("📌 JOIN UPDATES CHANNEL 📌", url=UPDATES_CHANNEL_URL)]
@@ -358,7 +344,7 @@ async def bot_callbacks(client, query: CallbackQuery):
                     pass
 
     elif data in ["btn_filter", "btn_page"]:
-        await query.answer("Use links above to open specific files! ⚡", show_alert=False)
+        await query.answer("Use the direct movie links above! ⚡", show_alert=False)
 
 # ==========================================
 # 7. MAIN ENTRY POINT
