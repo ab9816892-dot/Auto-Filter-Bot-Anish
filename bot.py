@@ -3,12 +3,23 @@ import random
 import asyncio
 import urllib.parse
 import logging
-from pyrogram import Client, filters, errors
+from pyrogram import Client, filters, errors, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from config import API_ID, API_HASH, BOT_TOKEN, BOT_USERNAME, ADMINS, CHANNELS
+import config
 from database import db_instance
 
 logging.basicConfig(level=logging.INFO)
+
+# ==========================================
+# 1. CONFIG LOADER (SAFE FALLBACKS)
+# ==========================================
+API_ID = getattr(config, "API_ID", None)
+API_HASH = getattr(config, "API_HASH", None)
+BOT_TOKEN = getattr(config, "BOT_TOKEN", None)
+BOT_USERNAME = getattr(config, "BOT_USERNAME", "BoultFlixMovieBot")
+ADMINS = getattr(config, "ADMINS", [])
+CHANNELS = getattr(config, "CHANNELS", [])
+LOG_CHANNEL = getattr(config, "LOG_CHANNEL", None) or getattr(config, "LOG_CHAT", None) or -1004240578315
 
 START_PIC = "https://i.ibb.co/PZtMPSKf/boultflix-popcorn-cart.webp"
 UPDATES_CHANNEL_URL = "https://t.me/+f-k01NScSxEyNzc1"
@@ -17,8 +28,7 @@ SUPPORT_BOT_URL = "https://t.me/BoultFlixSupportBot"
 REACTION_EMOJIS = [
     "🔥", "⚡", "❤️", "🍿", "🥰", "🎉", "🤩", "👏", 
     "👌", "🕊️", "😍", "💯", "💖", "🍓", "🍾", "😎", 
-    "👾", "✨", "🤙", "🥂", "🎬", "🏆", "💎", "👻", 
-    "🚀", "👑", "🫡", "🤝", "💫", "🌟"
+    "👾", "✨", "🤙", "🥂", "🎬", "🏆", "💎", "👻"
 ]
 
 app = Client(
@@ -28,24 +38,64 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
+# ==========================================
+# 2. RENDER PORT KEEP-ALIVE SERVER (ZERO PIP DEPS)
+# ==========================================
+async def handle_http_request(reader, writer):
+    response = (
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/plain\r\n"
+        "Content-Length: 26\r\n"
+        "Connection: close\r\n\r\n"
+        "BoultFlix Bot Active 24/7!"
+    )
+    writer.write(response.encode("utf-8"))
+    await writer.drain()
+    writer.close()
+
+async def start_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    try:
+        server = await asyncio.start_server(handle_http_request, "0.0.0.0", port)
+        print(f"🌐 Keep-Alive Web Server started on port {port}")
+        return server
+    except Exception as e:
+        print(f"⚠️ Web server notice: {e}")
+        return None
+
+# ==========================================
+# 3. BACKGROUND UTILITIES (REACTION & USER LOG)
+# ==========================================
 async def send_reaction(message):
     try:
         await message.react(emoji=random.choice(REACTION_EMOJIS))
     except Exception:
         pass
 
+async def log_new_user(user):
+    try:
+        is_new = await db_instance.add_user(user.id, user.first_name)
+        if is_new and LOG_CHANNEL:
+            username_text = f"@{user.username}" if user.username else "Nᴏɴᴇ"
+            log_text = (
+                f"#NewUser 🍿\n\n"
+                f"👤 <b>Nᴀᴍᴇ:</b> {user.mention}\n"
+                f"🆔 <b>ID:</b> <code>{user.id}</code>\n"
+                f"🌐 <b>Usᴇʀɴᴀᴍᴇ:</b> {username_text}\n"
+                f"⚡ <b>Sᴛᴀᴛᴜs:</b> Bᴏᴛ Sᴛᴀʀᴛᴇᴅ"
+            )
+            await app.send_message(LOG_CHANNEL, log_text)
+    except Exception as e:
+        print(f"⚠️ User Log Error: {e}")
+
 # ==========================================
-# 1. /START HANDLER
+# 4. /START HANDLER
 # ==========================================
 @app.on_message(filters.command("start") & filters.private)
 async def start_handler(client, message):
     asyncio.create_task(send_reaction(message))
-
     user = message.from_user
-    try:
-        await db_instance.add_user(user.id, user.first_name)
-    except Exception:
-        pass
+    asyncio.create_task(log_new_user(user))
     
     caption = (
         f"Hᴇʏ 🍿 <b>{user.mention}</b> 🥷\n\n"
@@ -72,7 +122,7 @@ async def start_handler(client, message):
         await message.reply_text(text=caption, reply_markup=buttons)
 
 # ==========================================
-# 2. REVERSE ULTRA-FAST INDEXER
+# 5. REVERSE ULTRA-FAST /INDEX HANDLER
 # ==========================================
 async def execute_indexing(client, status_msg, target_chat, max_id):
     try:
@@ -80,9 +130,12 @@ async def execute_indexing(client, status_msg, target_chat, max_id):
         scanned_count = 0
         batch_size = 200
 
-        await status_msg.edit_text(f"⚡ <b>Iɴᴅᴇxɪɴɢ Sᴛᴀʀᴛᴇᴅ!</b>\n\n📊 <b>Tᴏᴛᴀʟ Mᴇssᴀɢᴇs ᴛᴏ Sᴄᴀɴ:</b> <code>{max_id}</code>\n📦 <b>Iɴᴅᴇxᴇᴅ Fɪʟᴇs:</b> <code>0</code>")
+        await status_msg.edit_text(
+            f"⚡ <b>Iɴᴅᴇxɪɴɢ Sᴛᴀʀᴛᴇᴅ!</b>\n\n"
+            f"📊 <b>Tᴏᴛᴀʟ Mᴇssᴀɢᴇs ᴛᴏ Sᴄᴀɴ:</b> <code>{max_id}</code>\n"
+            f"📦 <b>Iɴᴅᴇxᴇᴅ Fɪʟᴇs:</b> <code>0</code>"
+        )
 
-        # Scanning Reverse: Newest ID to Oldest ID
         for start_id in range(max_id, 0, -batch_size):
             id_list = list(range(start_id, max(0, start_id - batch_size), -1))
             
@@ -103,7 +156,6 @@ async def execute_indexing(client, status_msg, target_chat, max_id):
                 if not media:
                     continue
 
-                # 100MB File Size Filter
                 if getattr(media, "file_size", 0) >= (100 * 1024 * 1024):
                     try:
                         await db_instance.save_file(media)
@@ -111,7 +163,6 @@ async def execute_indexing(client, status_msg, target_chat, max_id):
                     except Exception:
                         pass
 
-            # UI Edit every 1500 messages
             if scanned_count % 1500 < batch_size or scanned_count >= max_id:
                 percentage = min(100.0, round((scanned_count / max_id) * 100, 1))
                 try:
@@ -156,7 +207,7 @@ async def manual_index_handler(client, message):
     asyncio.create_task(execute_indexing(client, status_msg, target_chat, max_id))
 
 # ==========================================
-# 3. CALLBACK HANDLERS
+# 6. CALLBACK HANDLERS
 # ==========================================
 @app.on_callback_query()
 async def bot_callbacks(client, query: CallbackQuery):
@@ -260,7 +311,7 @@ async def bot_callbacks(client, query: CallbackQuery):
             await query.answer("❌ File pathate somossya hoyeche!", show_alert=True)
 
 # ==========================================
-# 4. AUTO-FILTER & NO RESULTS HANDLER
+# 7. AUTO-FILTER & NO RESULTS HANDLER
 # ==========================================
 @app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about", "index"]))
 async def search_movie(client, message):
@@ -314,7 +365,7 @@ async def search_movie(client, message):
     )
 
 # ==========================================
-# 5. REAL-TIME INDEXER (FOR NEW UPLOADS)
+# 8. REAL-TIME INDEXER (FOR NEW UPLOADS)
 # ==========================================
 @app.on_message(filters.channel & (filters.document | filters.video | filters.audio))
 async def channel_indexer(client, message):
@@ -324,7 +375,31 @@ async def channel_indexer(client, message):
             await db_instance.save_file(media)
 
 # ==========================================
-# 6. MAIN ENTRY POINT
+# 9. MAIN RUNNER (BOT + LOG + WEB SERVER)
 # ==========================================
+async def main():
+    await app.start()
+    print("🚀 BoultFlix Bot Started Successfully!")
+
+    # Startup Notification to Log Channel
+    if LOG_CHANNEL:
+        try:
+            startup_text = (
+                f"⚡ <b>Bᴏᴜʟᴛғʟɪx Mᴏᴠɪᴇs Bᴏᴛ Rᴇsᴛᴀʀᴛᴇᴅ!</b> 🚀\n\n"
+                f"👤 <b>Dᴇᴠᴇʟᴏᴘᴇʀ:</b> @BoultFlix\n"
+                f"🌐 <b>Sᴇʀᴠᴇʀ:</b> Rᴇɴᴅᴇʀ\n"
+                f"🟢 <b>Sᴛᴀᴛᴜs:</b> Oɴʟɪɴᴇ & Rᴇᴀᴅʏ"
+            )
+            await app.send_message(LOG_CHANNEL, startup_text)
+        except Exception as e:
+            print(f"⚠️ Startup Log Error: {e}")
+
+    # Start Keep-Alive Server
+    await start_web_server()
+
+    # Keep Bot Alive
+    await idle()
+    await app.stop()
+
 if __name__ == "__main__":
-    app.run()
+    asyncio.get_event_loop().run_until_complete(main())
