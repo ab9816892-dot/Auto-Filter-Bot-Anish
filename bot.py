@@ -6,20 +6,22 @@ import urllib.parse
 import logging
 from pyrogram import Client, filters, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import MongoClient
 
 logging.basicConfig(level=logging.INFO)
 
 # ==========================================
-# 1. CONFIGURATION
+# 1. CONFIGURATION (CORRECT CHANNELS & CREDENTIALS)
 # ==========================================
 API_ID = 39972309
 API_HASH = "dd6e47a51f4f934ed21d346f78aae407"
 BOT_TOKEN = "8520883339:AAG-ZmU0e2FiehtEoiZtLuCl852bVMydgVE"
 BOT_USERNAME = "BoultFlixMovieBot"
+
+# Channels Setup
+DB_CHANNEL = -1004240578315
+LOG_CHANNEL = -1004328720608
 ADMINS = [7908289094]
-LOG_CHANNEL = -1004240578315
-MONGO_URI = "mongodb+srv://ab9816892_db_user:anish12345@cluster0.yogzcqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 
 START_PIC = "https://i.ibb.co/PZtMPSKf/boultflix-popcorn-cart.webp"
 UPDATES_CHANNEL_URL = "https://t.me/+f-k01NScSxEyNzc1"
@@ -31,11 +33,17 @@ REACTION_EMOJIS = [
     "👾", "✨", "🤙", "🥂", "🎬", "🏆", "💎", "👻"
 ]
 
-# MongoDB Connection
-mongo_client = AsyncIOMotorClient(MONGO_URI)
-db = mongo_client["Cluster0"]
-files_col = db["Telegram_Files"]
-users_col = db["Users"]
+# MongoDB Connection (Pure Stable PyMongo)
+MONGO_URI = "mongodb+srv://ab9816892_db_user:anish12345@cluster0.yogzcqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+
+try:
+    mongo_client = MongoClient(MONGO_URI)
+    db = mongo_client["Cluster0"]
+    files_col = db["Telegram_Files"]
+    users_col = db["Users"]
+    print("✅ MongoDB Connected Successfully!")
+except Exception as e:
+    print(f"❌ MongoDB Connection Failed: {e}")
 
 app = Client(
     "BoultFlixMovieBot",
@@ -57,6 +65,7 @@ async def start_web_server():
     port = int(os.environ.get("PORT", 8080))
     try:
         await asyncio.start_server(handle_http, "0.0.0.0", port)
+        print(f"🌐 Keep-Alive Server active on port {port}")
     except Exception:
         pass
 
@@ -69,13 +78,22 @@ async def send_reaction(message):
     except Exception:
         pass
 
+def db_find_user(user_id):
+    return users_col.find_one({"user_id": user_id})
+
+def db_add_user(user_id, name):
+    users_col.insert_one({"user_id": user_id, "name": name})
+
+def db_search_movies(query_pattern):
+    return list(files_col.find({"file_name": {"$regex": query_pattern, "$options": "i"}}).limit(10))
+
 async def log_user(user):
     try:
-        existing = await users_col.find_one({"user_id": user.id})
+        existing = await asyncio.to_thread(db_find_user, user.id)
         if not existing:
-            await users_col.insert_one({"user_id": user.id, "name": user.first_name})
+            await asyncio.to_thread(db_add_user, user.id, user.first_name)
             if LOG_CHANNEL:
-                username_txt = f"@{user.username}" if user.username else "None"
+                username_txt = f"@{user.username}" if user.username else "Nᴏɴᴇ"
                 log_text = (
                     f"#NewUser 🍿\n\n"
                     f"👤 <b>Nᴀᴍᴇ:</b> {user.mention}\n"
@@ -84,8 +102,8 @@ async def log_user(user):
                     f"⚡ <b>Sᴛᴀᴛᴜs:</b> Bᴏᴛ Sᴛᴀʀᴛᴇᴅ"
                 )
                 await app.send_message(LOG_CHANNEL, log_text)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"⚠️ User Log Error: {e}")
 
 # ==========================================
 # 4. /START HANDLER
@@ -137,12 +155,7 @@ async def search_movie(client, message):
     
     results = []
     try:
-        cursor = files_col.find(
-            {"file_name": {"$regex": regex_pattern, "$options": "i"}}
-        ).limit(10)
-        
-        async for doc in cursor:
-            results.append(doc)
+        results = await asyncio.to_thread(db_search_movies, regex_pattern)
     except Exception as e:
         print(f"MongoDB Search Error: {e}")
 
@@ -181,7 +194,6 @@ async def search_movie(client, message):
     buttons = []
     for res in results:
         file_name = res.get("file_name", "Download Video")
-        # Trim button text if too long
         display_name = (file_name[:40] + "..") if len(file_name) > 42 else file_name
         buttons.append([InlineKeyboardButton(f"📁 {display_name}", callback_data=f"file_{res.get('file_id')}")])
 
@@ -301,6 +313,7 @@ async def main():
     await app.start()
     print("🚀 BoultFlix Bot Started Successfully!")
 
+    # Restart Alert to Correct Log Channel
     if LOG_CHANNEL:
         try:
             startup_text = (
@@ -310,8 +323,8 @@ async def main():
                 f"🟢 <b>Sᴛᴀᴛᴜs:</b> Oɴʟɪɴᴇ & Rᴇᴀᴅʏ"
             )
             await app.send_message(LOG_CHANNEL, startup_text)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ Log Channel Alert Error: {e}")
 
     await start_web_server()
     await idle()
