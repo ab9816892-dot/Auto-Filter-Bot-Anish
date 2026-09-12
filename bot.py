@@ -3,6 +3,7 @@ import re
 import random
 import asyncio
 import urllib.parse
+import urllib.request
 import logging
 from bson.objectid import ObjectId
 from aiohttp import web
@@ -13,11 +14,11 @@ from pymongo import MongoClient
 logging.basicConfig(level=logging.INFO)
 
 # ==========================================
-# 1. CONFIGURATION
+# 1. CONFIGURATION (NEW TOKEN APPLIED)
 # ==========================================
 API_ID = 39972309
 API_HASH = "dd6e47a51f4f934ed21d346f78aae407"
-BOT_TOKEN = "8520883339:AAG-ZmU0e2FiehtEoiZtLuCl852bVMydgVE"
+BOT_TOKEN = "8970048357:AAEbxUotyFA34UjF8Xi5ocJURXqXsuSG7YY"
 BOT_USERNAME = "BoultFlixMovieBot"
 
 DB_CHANNEL = -1004240578315
@@ -30,7 +31,14 @@ SUPPORT_BOT_URL = "https://t.me/BoultFlixSupportBot"
 
 REACTION_EMOJIS = ["🔥", "⚡", "❤️", "🥰", "🎉", "🤩", "👏", "👌", "🕊️", "😍", "💯", "💖", "🍓", "😎", "✨", "🎬", "🏆", "💎", "🚀"]
 
-# MongoDB Connection (52,899+ Movies)
+# Clear Old Webhooks for New Token
+try:
+    urllib.request.urlopen(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true", timeout=5)
+    print("🧹 Webhook Cleared for New Token!", flush=True)
+except Exception:
+    pass
+
+# MongoDB Connection (52,899+ Indexed Movies)
 MONGO_URI = "mongodb+srv://ab9816892_db_user:anish12345@cluster0.yogzcqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 db = mongo_client["Cluster0"]
@@ -38,14 +46,31 @@ files_col = db["Telegram_Files"]
 users_col = db["Users"]
 
 app = Client(
-    "BoultFlix_Live",
+    "BoultFlix_Live_New",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
 )
 
 # ==========================================
-# 2. RENDER KEEP-ALIVE SERVER
+# 2. GUARANTEED HTTP LOG SENDER
+# ==========================================
+def send_telegram_http(text):
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        data = urllib.parse.urlencode({
+            "chat_id": LOG_CHANNEL,
+            "text": text,
+            "parse_mode": "HTML"
+        }).encode("utf-8")
+        req = urllib.request.Request(url, data=data)
+        urllib.request.urlopen(req, timeout=5)
+        print("📢 Log alert sent via HTTP API!", flush=True)
+    except Exception as e:
+        print(f"⚠️ HTTP Log Note: {e}", flush=True)
+
+# ==========================================
+# 3. RENDER PORT KEEP-ALIVE SERVER
 # ==========================================
 async def handle_ping(request):
     return web.Response(text="BoultFlix Bot 24/7 Live", status=200)
@@ -60,12 +85,12 @@ async def start_web_server():
     try:
         site = web.TCPSite(runner, "0.0.0.0", port)
         await site.start()
-        print(f"✅ Web Server Live on Port: {port}", flush=True)
+        print(f"🌐 Keep-Alive Web Server active on port {port}", flush=True)
     except Exception as e:
-        print(f"⚠️ Port Info: {e}", flush=True)
+        print(f"⚠️ Web Server Info: {e}", flush=True)
 
 # ==========================================
-# 3. HELPER FUNCTIONS
+# 4. HELPER FUNCTIONS
 # ==========================================
 async def send_reaction(message):
     try:
@@ -97,14 +122,32 @@ def db_get_file_by_id(doc_id):
     except Exception:
         return None
 
+async def log_user(user):
+    try:
+        existing = await asyncio.to_thread(db_find_user, user.id)
+        if not existing:
+            await asyncio.to_thread(db_add_user, user.id, user.first_name)
+            username_txt = f"@{user.username}" if user.username else "Nᴏɴᴇ"
+            log_text = (
+                f"#NewUser 🍿\n\n"
+                f"👤 <b>Nᴀᴍᴇ:</b> {user.mention}\n"
+                f"🆔 <b>ID:</b> <code>{user.id}</code>\n"
+                f"🌐 <b>Usᴇʀɴᴀᴍᴇ:</b> {username_txt}\n"
+                f"⚡ <b>Sᴛᴀᴛᴜs:</b> Bᴏᴛ Sᴛᴀʀᴛᴇᴅ"
+            )
+            await asyncio.to_thread(send_telegram_http, log_text)
+    except Exception:
+        pass
+
 # ==========================================
-# 4. /START COMMAND HANDLER
+# 5. /START COMMAND HANDLER
 # ==========================================
 @app.on_message(filters.private & filters.command("start"))
 async def start_handler(client, message):
     user = message.from_user
     print(f"⚡ /start received from: {user.first_name} ({user.id})", flush=True)
     asyncio.create_task(send_reaction(message))
+    asyncio.create_task(log_user(user))
 
     caption = (
         f"Hᴇʏ 🍿 <b>{user.mention}</b> 🥷\n\n"
@@ -124,7 +167,7 @@ async def start_handler(client, message):
         await message.reply_text(text=caption, reply_markup=buttons)
 
 # ==========================================
-# 5. MOVIE SEARCH (52,899+ MONGODB DATABASE)
+# 6. MOVIE SEARCH ENGINE (52,899+ MONGODB DATABASE)
 # ==========================================
 @app.on_message(filters.private & filters.text & ~filters.command(["start", "help", "about"]))
 async def search_movie(client, message):
@@ -155,6 +198,7 @@ async def search_movie(client, message):
         await message.reply_text(text=no_results_text, reply_markup=action_buttons, disable_web_page_preview=True)
         return
 
+    # SAFE 24-BYTE BUTTON CALLBACKS
     buttons = []
     for res in results:
         file_name = res.get("file_name", "Download Video")
@@ -168,7 +212,7 @@ async def search_movie(client, message):
     )
 
 # ==========================================
-# 6. CALLBACK HANDLERS (MENUS & FILE DELIVERY)
+# 7. CALLBACK HANDLERS (MENUS & FILE DELIVERY)
 # ==========================================
 @app.on_callback_query()
 async def bot_callbacks(client, query: CallbackQuery):
@@ -250,14 +294,23 @@ async def bot_callbacks(client, query: CallbackQuery):
             await query.answer("❌ File not found in DB!", show_alert=True)
 
 # ==========================================
-# 7. MAIN ENTRY POINT (UNBUFFERED LOGS)
+# 8. MAIN ENTRY POINT
 # ==========================================
 async def main():
     print("⏳ Starting Web Server...", flush=True)
     await start_web_server()
-    print("⏳ Connecting to Telegram MTProto...", flush=True)
+    print("⏳ Connecting to Telegram with New Token...", flush=True)
     await app.start()
     print("🚀 BoultFlix Bot Started & Polling Telegram Updates 24/7!", flush=True)
+
+    startup_text = (
+        f"⚡ <b>Bᴏᴜʟᴛғʟɪx Mᴏᴠɪᴇs Bᴏᴛ Rᴇsᴛᴀʀᴛᴇᴅ!</b> 🚀\n\n"
+        f"👤 <b>Dᴇᴠᴇʟᴏᴘᴇʀ:</b> @BoultFlix\n"
+        f"🌐 <b>Sᴇʀᴠᴇʀ:</b> Rᴇɴᴅᴇʀ\n"
+        f"🟢 <b>Sᴛᴀᴛᴜs:</b> Oɴʟɪɴᴇ & Rᴇᴀᴅʏ"
+    )
+    await asyncio.to_thread(send_telegram_http, startup_text)
+
     await idle()
     await app.stop()
 
