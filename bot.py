@@ -1,5 +1,6 @@
 import os
 import random
+import asyncio
 import urllib.parse
 import logging
 from pyrogram import Client, filters
@@ -16,12 +17,34 @@ START_PIC = "https://i.ibb.co/PZtMPSKf/boultflix-popcorn-cart.webp"
 UPDATES_CHANNEL_URL = "https://t.me/+f-k01NScSxEyNzc1"
 SUPPORT_BOT_URL = "https://t.me/BoultFlixSupportBot"
 
-# Large Positive & Aesthetic Reaction Pool (No Bad Emojis)
-REACTION_EMOJIS = [
-    "🔥", "⚡", "❤️", "👍", "🍿", "🥰", "🎉", 
-    "🤩", "🙏", "👌", "🕊️", "😍", "💯", "💖", 
-    "🍓", "🍾", "😎", "👾", "✨", "🤙", "🥂", "🎬"
+# ==========================================
+# CUSTOM PREMIUM EMOJI POOL (ALL YOUR IDS)
+# ==========================================
+CUSTOM_EMOJI_IDS = [
+    5210956306952758910, 5461117441612462242, 5456140674028019486, 5224607267797606837,
+    5229064374403998351, 5447410659077661506, 5443038326535759644, 5467538555158943525,
+    5231200819986047254, 5449683594425410231, 5447183459602669338, 5451882707875276247,
+    5244837092042750681, 5206607081334906820, 5222079954421818267, 5458603043203327669,
+    5391112412445288650, 5269531045165816230, 5395444514028529554, 5397782960512444700,
+    5409048419211682843, 5233326571099534068, 5231449120635370684, 5278751923338490157,
+    5290017777174722330, 5231005931550030290, 5402186569006210455, 5264919878082509254,
+    5411225014148014586, 5416081784641168838, 5416117059207572332, 5424972470023104089,
+    5276032951342088188, 5294339927318739359, 5224736245665511429, 5424818078833715060,
+    5431609822288033666, 5449875686837726134, 5460795800101594035, 5231012545799666522,
+    5251203410396458957, 5271604874419647061, 5282843764451195532, 5323442290708985472,
+    5334544901428229844, 5337080053119336309, 5348125953090403204, 5359543311897998264,
+    5341498088408234504, 5375338737028841420, 5415655814079723871, 5382357040008021292,
+    5391032818111363540, 5397916757333654639, 5427168083074628963, 5438496463044752972,
+    5325547803936572038, 5217822164362739968, 5253742260054409879, 5296369303661067030,
+    5303479226882603449, 5305265301917549162, 5341715473882955310, 5361741454685256344,
+    5388632425314140043, 5386367538735104399, 5406745015365943482, 5402477260982731644,
+    5399913388845322366, 5449569374065152798, 5449449325434266744, 5409109841538994759,
+    5393512611968995988, 5413879192267805083, 5422439311196834318, 5463107823946717464,
+    5406756500108501710, 5395444784611480792, 5395695537687123235, 5406683434124859552,
+    5416041192905265756, 5460755126761312667, 5461151367559141950
 ]
+
+FALLBACK_EMOJIS = ["🔥", "⚡", "❤️", "🍿", "🥰", "🎉", "🤩", "✨", "🤙", "💯"]
 
 app = Client(
     "BoultFlixMovieBot",
@@ -30,15 +53,23 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
+# Safe Background Reaction (Never blocks or crashes replies)
+async def safe_react(message):
+    try:
+        chosen_id = random.choice(CUSTOM_EMOJI_IDS)
+        await message.react(emoji=chosen_id)
+    except Exception:
+        try:
+            await message.react(emoji=random.choice(FALLBACK_EMOJIS))
+        except Exception:
+            pass
+
 # ==========================================
 # 1. /START HANDLER
 # ==========================================
 @app.on_message(filters.command("start") & filters.private)
 async def start_handler(client, message):
-    try:
-        await message.react(emoji=random.choice(REACTION_EMOJIS))
-    except Exception:
-        pass
+    asyncio.create_task(safe_react(message))
 
     user = message.from_user
     await db_instance.add_user(user.id, user.first_name)
@@ -73,7 +104,6 @@ async def start_handler(client, message):
 @app.on_callback_query()
 async def bot_callbacks(client, query: CallbackQuery):
     data = query.data
-    
     await query.answer("Share & Support Us ❤️")
 
     if data == "home_menu":
@@ -101,7 +131,7 @@ async def bot_callbacks(client, query: CallbackQuery):
 
     elif data == "help_menu":
         help_text = (
-            "✨ <b>𝗛𝗢𝗪 𝗧𝗢 𝗚𝗘𝗧 𝗠𝗢𝗩𝗜𝗘𝗦,𝗔𝗡𝗜𝗠𝗘,𝗪𝗘𝗕 𝗦𝗘𝗥𝗜𝗘𝗦,𝗘𝗧𝗖</b> ✨\n\n"
+            "✨ <b>𝗛𝗢𝗪 𝗧𝗢 𝗚𝗘𝗧 𝗠𝗢𝗩𝗜𝗘𝗦, 𝗔𝗡𝗜𝗠𝗘, 𝗪𝗘𝗕 𝗦𝗘𝗥𝗜𝗘𝗦, 𝗘𝗧𝗖</b> ✨\n\n"
             "1) Sᴇᴀʀᴄʜ ᴛʜᴇ ᴄᴏʀʀᴇᴄᴛ ɴᴀᴍᴇ ᴏɴ ɢᴏᴏɢʟᴇ ᴀɴᴅ ᴄᴏᴘʏ ɪᴛ\n"
             "2) Pᴀsᴛᴇ ᴛʜᴇ ɴᴀᴍᴇ ɪɴ ᴛʜᴇ ʙᴏᴛ ᴀɴᴅ sᴇɴᴅ ɪᴛ\n"
             "(Usᴇ ᴛʜɪs ғᴏʀᴍᴀᴛ ғᴏʀ ʙᴇᴛᴛᴇʀ ʀᴇsᴜʟᴛs)\n\n"
@@ -177,14 +207,16 @@ async def bot_callbacks(client, query: CallbackQuery):
 # ==========================================
 @app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about"]))
 async def search_movie(client, message):
-    try:
-        await message.react(emoji=random.choice(REACTION_EMOJIS))
-    except Exception:
-        pass
+    # Non-blocking reaction in background task
+    asyncio.create_task(safe_react(message))
 
     query = message.text.strip()
     user = message.from_user
-    results, total = await db_instance.get_search_results(query, max_results=10)
+    
+    try:
+        results, total = await db_instance.get_search_results(query, max_results=10)
+    except Exception:
+        results, total = [], 0
     
     if not results:
         google_query_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(query)}"
