@@ -7,14 +7,14 @@ import urllib.request
 import logging
 from bson.objectid import ObjectId
 from aiohttp import web
-from pyrogram import Client, filters, idle
+from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from pymongo import MongoClient
 
 logging.basicConfig(level=logging.INFO)
 
 # ==========================================
-# 1. CONFIGURATION & CREDENTIALS
+# 1. CONFIGURATION
 # ==========================================
 API_ID = 39972309
 API_HASH = "dd6e47a51f4f934ed21d346f78aae407"
@@ -34,7 +34,7 @@ REACTION_EMOJIS = ["🔥", "⚡", "❤️", "🥰", "🎉", "🤩", "👏", "�
 # Clear old Webhooks
 try:
     urllib.request.urlopen(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true", timeout=5)
-    print("🧹 Webhook Cleared Successfully!", flush=True)
+    print("🧹 Webhook Cleared & Updates Flushed!", flush=True)
 except Exception:
     pass
 
@@ -45,9 +45,8 @@ db = mongo_client["Cluster0"]
 files_col = db["Telegram_Files"]
 users_col = db["Users"]
 
-# Client with in_memory=True (Zero Session Lock)
 app = Client(
-    "BoultFlixMovieBot",
+    "BoultFlix_Session",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
@@ -55,10 +54,10 @@ app = Client(
 )
 
 # ==========================================
-# 2. RENDER KEEP-ALIVE SERVER
+# 2. KEEP-ALIVE WEB SERVER
 # ==========================================
 async def handle_ping(request):
-    return web.Response(text="BoultFlix 24/7 Live", status=200)
+    return web.Response(text="BoultFlix Bot is 100% Online!", status=200)
 
 async def start_web_server():
     server = web.Application()
@@ -70,9 +69,9 @@ async def start_web_server():
     try:
         site = web.TCPSite(runner, "0.0.0.0", port)
         await site.start()
-        print(f"🌐 Keep-Alive Server running on port {port}", flush=True)
+        print(f"🌐 Keep-Alive Web Server active on port {port}", flush=True)
     except Exception as e:
-        print(f"⚠️ Server info: {e}", flush=True)
+        print(f"⚠️ Port Info: {e}", flush=True)
 
 # ==========================================
 # 3. HELPER FUNCTIONS
@@ -127,19 +126,16 @@ async def log_user(user):
         print(f"⚠️ User Log Error: {e}", flush=True)
 
 # ==========================================
-# 4. UNIVERSAL PRIVATE MESSAGE HANDLER
+# 4. DIRECT MESSAGE HANDLER (/START & SEARCH)
 # ==========================================
-@app.on_message(filters.private)
-async def private_message_dispatcher(client, message):
-    if not message.text:
-        return
-
+@app.on_message(filters.private & filters.text)
+async def incoming_private_message(client, message):
     raw_text = message.text.strip()
     user = message.from_user
-    print(f"📩 [Message From {user.first_name}]: {raw_text}", flush=True)
+    print(f"📩 [Telegram Message] From: {user.first_name} | Text: {raw_text}", flush=True)
     asyncio.create_task(send_reaction(message))
 
-    # --- /START COMMAND ---
+    # --- /START ---
     if raw_text.startswith("/start"):
         asyncio.create_task(log_user(user))
         caption = (
@@ -158,7 +154,7 @@ async def private_message_dispatcher(client, message):
             await message.reply_text(text=caption, reply_markup=buttons)
         return
 
-    # --- /HELP COMMAND ---
+    # --- /HELP ---
     if raw_text.startswith("/help"):
         help_text = (
             "✨ <b>𝗛𝗢𝗪 𝗧𝗢 𝗚𝗘𝗧 𝗠𝗢𝗩𝗜𝗘𝗦, 𝗔𝗡𝗜𝗠𝗘, 𝗪𝗘𝗕 𝗦𝗘𝗥𝗜𝗘𝗦, 𝗘𝗧𝗖</b> ✨\n\n"
@@ -174,13 +170,13 @@ async def private_message_dispatcher(client, message):
         await message.reply_text(help_text, reply_markup=help_buttons)
         return
 
-    # --- /ABOUT COMMAND ---
+    # --- /ABOUT ---
     if raw_text.startswith("/about"):
         about_text = (
             "╭─────[ <b>Mʏ Dᴇᴛᴀɪʟs</b> 🫧 ]──────⍟\n"
             f"├⍟ <b>Mʏ Nᴀᴍᴇ :</b> <a href='https://t.me/{BOT_USERNAME}'>Bᴏᴜʟᴛғʟɪx Mᴏᴠɪᴇs 🫧🫶🏼</a>\n"
             f"├⍟ <b>Dᴇᴠᴇʟᴏᴘᴇʀ :</b> <a href='https://t.me/BoultFlix'>Oᴡɴᴇʀ ⚡</a>\n"
-            "├⍟ <b>Dᴀᴛᴀʙᴀsᴇ :</b> <a href='https://www.mongodb.com'>Mᴏɴɢᴏ DB (52k+ Files)</a>\n"
+            "├⍟ <b>Dᴀᴛᴀʙᴀsᴇ :</b> <a href='https://www.mongodb.com'>Mᴏɴɢᴏ DB (52,899+ Files)</a>\n"
             "├⍟ <b>Bᴏᴛ Sᴇʀᴠᴇʀ :</b> <a href='https://render.com'>Rᴇɴᴅᴇʀ</a>\n"
             "╰───────────────⍟"
         )
@@ -203,7 +199,7 @@ async def private_message_dispatcher(client, message):
         no_results_text = (
             f"<b>Sᴏʀʀʏ {user.first_name}</b>, <b>ɴᴏ ғɪʟᴇs ᴡᴇʀᴇ ғᴏᴜɴᴅ ғᴏʀ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ</b> <code>{raw_text}</code> 🙁\n\n"
             f"<b>Cʜᴇᴄᴋ ʏᴏᴜʀ sᴘᴇʟʟɪɴɢ ɪɴ Gᴏᴏɢʟᴇ ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ</b> 😃\n\n"
-            f"📝 <b>Mᴏᴠɪᴇ ʀᴇǫᴜᴇsᴛ ғᴏʀᴍᴀᴛ</b> 👇\n"
+            f"📝 <b>Mᴏᴠɪᴇ ʀᴇǫᴜᴇsᴛ ғᴏʀᴍᴀᴛ</b> 👇\n\n"
             f"⚜️ <b>E x ᴀ ᴍ ᴘ ʟ ᴇ :</b> <code>Jawan</code> ᴏʀ <code>Jawan 2023</code>\n\n"
             f"📌 <i>Iғ ʏᴏᴜʀ sᴘᴇʟʟɪɴɢ ɪs ᴄᴏʀʀᴇᴄᴛ ᴘʟᴇᴀsᴇ ʀᴇᴘᴏʀᴛ ᴛᴏ ᴏᴜʀ sᴜᴘᴘᴏʀᴛ ᴛᴇᴀᴍ 👇</i>"
         )
@@ -227,7 +223,7 @@ async def private_message_dispatcher(client, message):
     )
 
 # ==========================================
-# 5. CALLBACK HANDLER (MENU & FILE DELIVERY)
+# 5. CALLBACK HANDLERS (COPY & DELIVERY)
 # ==========================================
 @app.on_callback_query()
 async def bot_callbacks(client, query: CallbackQuery):
@@ -242,7 +238,7 @@ async def bot_callbacks(client, query: CallbackQuery):
         )
         buttons = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔰 Aᴅᴅ Mᴇ Tᴏ Yᴏᴜʀ Gʀᴏᴜᴘ 🔰", url=f"https://t.me/{BOT_USERNAME}?startgroup=true")],
-            [InlineKeyboardButton("📢 Uᴘᴅᴀᴛᴇs Cʜᴀɴɴᴇʟ 📢", url=UPDATES_CHANNEL_URL)],
+            [InlineKeyboardButton("📢 Uᴘᴅᴀᴛᴇs Cʜᴀɴɴᴇﻟ 📢", url=UPDATES_CHANNEL_URL)],
             [InlineKeyboardButton("📑 Hᴇʟᴘ", callback_data="help_menu"), InlineKeyboardButton("ℹ️ Aʙᴏᴜᴛ", callback_data="about_menu")]
         ])
         try:
@@ -272,7 +268,7 @@ async def bot_callbacks(client, query: CallbackQuery):
             "╭─────[ <b>Mʏ Dᴇᴛᴀɪʟs</b> 🫧 ]──────⍟\n"
             f"├⍟ <b>Mʏ Nᴀᴍᴇ :</b> <a href='https://t.me/{BOT_USERNAME}'>Bᴏᴜʟᴛғʟɪx Mᴏᴠɪᴇs 🫧🫶🏼</a>\n"
             f"├⍟ <b>Dᴇᴠᴇʟᴏᴘᴇʀ :</b> <a href='https://t.me/BoultFlix'>Oᴡɴᴇʀ ⚡</a>\n"
-            "├⍟ <b>Dᴀᴛᴀʙᴀsᴇ :</b> <a href='https://www.mongodb.com'>Mᴏɴɢᴏ DB (52k+ Files)</a>\n"
+            "├⍟ <b>Dᴀᴛᴀʙᴀsᴇ :</b> <a href='https://www.mongodb.com'>Mᴏɴɢᴏ DB (52,899+ Files)</a>\n"
             "├⍟ <b>Bᴏᴛ Sᴇʀᴠᴇʀ :</b> <a href='https://render.com'>Rᴇɴᴅᴇʀ</a>\n"
             "╰───────────────⍟"
         )
@@ -300,22 +296,40 @@ async def bot_callbacks(client, query: CallbackQuery):
     elif data.startswith("get_"):
         doc_id = data.split("get_", 1)[1]
         doc = await asyncio.to_thread(db_get_file_by_id, doc_id)
-        if doc and doc.get("file_id"):
-            try:
-                await client.send_cached_media(chat_id=query.from_user.id, file_id=doc["file_id"])
-            except Exception as e:
-                print(f"File Send Error: {e}", flush=True)
-                await query.answer("❌ File pathate somossa hoyeche!", show_alert=True)
+        if doc:
+            sent = False
+            # 1. First try copy_message from DB Channel (Most Reliable for Colab Dumps)
+            if doc.get("message_id") and doc.get("chat_id"):
+                try:
+                    await client.copy_message(
+                        chat_id=query.from_user.id,
+                        from_chat_id=doc["chat_id"],
+                        message_id=doc["message_id"]
+                    )
+                    sent = True
+                except Exception as ex:
+                    print(f"Copy message fallback: {ex}", flush=True)
+
+            # 2. Fallback to cached file_id
+            if not sent and doc.get("file_id"):
+                try:
+                    await client.send_cached_media(chat_id=query.from_user.id, file_id=doc["file_id"])
+                    sent = True
+                except Exception as ex:
+                    print(f"Cached media error: {ex}", flush=True)
+
+            if not sent:
+                await query.answer("❌ File send failed. Ensure bot is admin in DB Channel!", show_alert=True)
         else:
-            await query.answer("❌ File database-e khuje paoa jayni!", show_alert=True)
+            await query.answer("❌ File not found in database!", show_alert=True)
 
 # ==========================================
-# 6. MAIN RUNNER
+# 6. BULLETPROOF MAIN ENGINE (PERMANENT LOOP)
 # ==========================================
 async def main():
-    asyncio.create_task(start_web_server())
+    await start_web_server()
     await app.start()
-    print("🚀 BoultFlix Bot Started Successfully & Listening for Messages!", flush=True)
+    print("🚀 BoultFlix Bot Started & Polling Telegram Updates 24/7!", flush=True)
 
     if LOG_CHANNEL:
         try:
@@ -326,12 +340,13 @@ async def main():
                 f"🟢 <b>Sᴛᴀᴛᴜs:</b> Oɴʟɪɴᴇ & Rᴇᴀᴅʏ"
             )
             await app.send_message(LOG_CHANNEL, startup_text)
-            print("📢 Startup notification sent to Log Channel!", flush=True)
+            print("📢 Startup alert sent to Log Channel!", flush=True)
         except Exception as e:
-            print(f"⚠️ Log Channel Alert Error: {e}", flush=True)
+            print(f"⚠️ Log Channel Alert Warning: {e}", flush=True)
 
-    await idle()
-    await app.stop()
+    # Permanent Non-Dying Loop (Never Exits on SIGTERM/Idle)
+    while True:
+        await asyncio.sleep(3600)
 
 if __name__ == "__main__":
     asyncio.get_event_loop().run_until_complete(main())
