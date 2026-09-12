@@ -14,7 +14,7 @@ from pymongo import MongoClient
 logging.basicConfig(level=logging.INFO)
 
 # ==========================================
-# 1. CONFIGURATION
+# 1. CONFIGURATION & CREDENTIALS
 # ==========================================
 API_ID = 39972309
 API_HASH = "dd6e47a51f4f934ed21d346f78aae407"
@@ -31,10 +31,10 @@ SUPPORT_BOT_URL = "https://t.me/BoultFlixSupportBot"
 
 REACTION_EMOJIS = ["🔥", "⚡", "❤️", "🥰", "🎉", "🤩", "👏", "👌", "🕊️", "😍", "💯", "💖", "🍓", "😎", "✨", "🎬", "🏆", "💎", "🚀"]
 
-# Clear old Webhooks
+# Clear Old Webhooks
 try:
     urllib.request.urlopen(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true", timeout=5)
-    print("🧹 Webhooks Cleared!", flush=True)
+    print("🧹 Webhook Cleared!", flush=True)
 except Exception:
     pass
 
@@ -45,16 +45,31 @@ db = mongo_client["Cluster0"]
 files_col = db["Telegram_Files"]
 users_col = db["Users"]
 
-# Persistent Fast Client
 app = Client(
-    "BoultFlix_Disk_Session",
+    "BoultFlix_Live_Session",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
 )
 
 # ==========================================
-# 2. RENDER KEEP-ALIVE SERVER
+# 2. GUARANTEED HTTP LOG SENDER (NO CHANNEL_INVALID)
+# ==========================================
+def send_telegram_http(text):
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        data = urllib.parse.urlencode({
+            "chat_id": LOG_CHANNEL,
+            "text": text,
+            "parse_mode": "HTML"
+        }).encode("utf-8")
+        req = urllib.request.Request(url, data=data)
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        print(f"HTTP Log Note: {e}", flush=True)
+
+# ==========================================
+# 3. RENDER KEEP-ALIVE SERVER
 # ==========================================
 async def handle_ping(request):
     return web.Response(text="BoultFlix 24/7 Live", status=200)
@@ -70,11 +85,11 @@ async def start_web_server():
         site = web.TCPSite(runner, "0.0.0.0", port)
         await site.start()
         print(f"🌐 Keep-Alive Server active on port {port}", flush=True)
-    except Exception as e:
-        print(f"⚠️ Port Info: {e}", flush=True)
+    except Exception:
+        pass
 
 # ==========================================
-# 3. HELPER FUNCTIONS
+# 4. HELPER FUNCTIONS
 # ==========================================
 async def send_reaction(message):
     try:
@@ -97,8 +112,7 @@ def db_add_user(user_id, name):
 def db_search_movies(query_pattern):
     try:
         return list(files_col.find({"file_name": {"$regex": query_pattern, "$options": "i"}}).limit(10))
-    except Exception as e:
-        print(f"DB Query Error: {e}", flush=True)
+    except Exception:
         return []
 
 def db_get_file_by_id(doc_id):
@@ -112,67 +126,63 @@ async def log_user(user):
         existing = await asyncio.to_thread(db_find_user, user.id)
         if not existing:
             await asyncio.to_thread(db_add_user, user.id, user.first_name)
-            if LOG_CHANNEL:
-                username_txt = f"@{user.username}" if user.username else "Nᴏɴᴇ"
-                log_text = (
-                    f"#NewUser 🍿\n\n"
-                    f"👤 <b>Nᴀᴍᴇ:</b> {user.mention}\n"
-                    f"🆔 <b>ID:</b> <code>{user.id}</code>\n"
-                    f"🌐 <b>Usᴇʀɴᴀᴍᴇ:</b> {username_txt}\n"
-                    f"⚡ <b>Sᴛᴀᴛᴜs:</b> Bᴏᴛ Sᴛᴀʀᴛᴇᴅ"
-                )
-                try:
-                    await app.send_message(LOG_CHANNEL, log_text)
-                except Exception:
-                    pass
-    except Exception as e:
-        print(f"⚠️ User Log Error: {e}", flush=True)
+            username_txt = f"@{user.username}" if user.username else "Nᴏɴᴇ"
+            log_text = (
+                f"#NewUser 🍿\n\n"
+                f"👤 <b>Nᴀᴍᴇ:</b> {user.mention}\n"
+                f"🆔 <b>ID:</b> <code>{user.id}</code>\n"
+                f"🌐 <b>Usᴇʀɴᴀᴍᴇ:</b> {username_txt}\n"
+                f"⚡ <b>Sᴛᴀᴛᴜs:</b> Bᴏᴛ Sᴛᴀʀᴛᴇᴅ"
+            )
+            await asyncio.to_thread(send_telegram_http, log_text)
+    except Exception:
+        pass
 
 # ==========================================
-# 4. UNIVERSAL MESSAGE DISPATCHER
+# 5. /START COMMAND HANDLER
 # ==========================================
-@app.on_message()
-async def universal_message_handler(client, message):
-    if not message.chat or message.chat.type.name != "PRIVATE":
-        return
-    if not message.text:
-        return
-
-    raw_text = message.text.strip()
-    user = message.from_user
-    print(f"📩 [New Message] From: {user.first_name} ({user.id}) | Text: '{raw_text}'", flush=True)
+@app.on_message(filters.command("start") & filters.private)
+async def start_handler(client, message):
     asyncio.create_task(send_reaction(message))
+    user = message.from_user
+    asyncio.create_task(log_user(user))
+    
+    caption = (
+        f"Hᴇʏ 🍿 <b>{user.mention}</b> 🥷\n\n"
+        f"📍 <b>Wᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ᴡᴏʀʟᴅ's ᴄᴏᴏʟᴇsᴛ sᴇᴀʀᴄʜ ᴇɴɢɪɴᴇ! ⚡</b>\n\n"
+        f"Hᴇʀᴇ ʏᴏᴜ ᴄᴀɴ ʀᴇǫᴜᴇsᴛ ᴍᴏᴠɪᴇs & sᴇʀɪᴇs, ᴊᴜsᴛ sᴇɴᴅ ɴᴀᴍᴇ ᴡɪᴛʜ ᴘʀᴏᴘᴇʀ <b>Gᴏᴏɢʟᴇ sᴘᴇʟʟɪɴɢ</b>..!! 🫧🎬"
+    )
+    
+    buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔰 Aᴅᴅ Mᴇ Tᴏ Yᴏᴜʀ Gʀᴏᴜᴘ 🔰", url=f"https://t.me/{BOT_USERNAME}?startgroup=true")],
+        [InlineKeyboardButton("📢 Uᴘᴅᴀᴛᴇs Cʜᴀɴɴᴇʟ 📢", url=UPDATES_CHANNEL_URL)],
+        [InlineKeyboardButton("📑 Hᴇʟᴘ", callback_data="help_menu"), InlineKeyboardButton("ℹ️ Aʙᴏᴜᴛ", callback_data="about_menu")]
+    ])
+    
+    try:
+        await message.reply_photo(photo=START_PIC, caption=caption, reply_markup=buttons)
+    except Exception:
+        await message.reply_text(text=caption, reply_markup=buttons)
 
-    # --- /START ---
-    if raw_text.startswith("/start"):
-        asyncio.create_task(log_user(user))
-        caption = (
-            f"Hᴇʏ 🍿 <b>{user.mention}</b> 🥷\n\n"
-            f"📍 <b>Wᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ᴡᴏʀʟᴅ's ᴄᴏᴏʟᴇsᴛ sᴇᴀʀᴄʜ ᴇɴɢɪɴᴇ! ⚡</b>\n\n"
-            f"Hᴇʀᴇ ʏᴏᴜ ᴄᴀɴ ʀᴇǫᴜᴇsᴛ ᴍᴏᴠɪᴇs & sᴇʀɪᴇs, ᴊᴜsᴛ sᴇɴᴅ ɴᴀᴍᴇ ᴡɪᴛʜ ᴘʀᴏᴘᴇʀ <b>Gᴏᴏɢʟᴇ sᴘᴇʟʟɪɴɢ</b>..!! 🫧🎬"
-        )
-        buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔰 Aᴅᴅ Mᴇ Tᴏ Yᴏᴜʀ Gʀᴏᴜᴘ 🔰", url=f"https://t.me/{BOT_USERNAME}?startgroup=true")],
-            [InlineKeyboardButton("📢 Uᴘᴅᴀᴛᴇs Cʜᴀɴɴᴇʟ 📢", url=UPDATES_CHANNEL_URL)],
-            [InlineKeyboardButton("📑 Hᴇʟᴘ", callback_data="help_menu"), InlineKeyboardButton("ℹ️ Aʙᴏᴜᴛ", callback_data="about_menu")]
-        ])
-        try:
-            await message.reply_photo(photo=START_PIC, caption=caption, reply_markup=buttons)
-        except Exception:
-            await message.reply_text(text=caption, reply_markup=buttons)
-        return
+# ==========================================
+# 6. MOVIE SEARCH (52,899 MONGODB DATABASE)
+# ==========================================
+@app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about"]))
+async def search_movie(client, message):
+    asyncio.create_task(send_reaction(message))
+    raw_query = message.text.strip()
+    user = message.from_user
 
-    # --- 52,899+ MONGODB MOVIE SEARCH ---
-    clean_query = re.sub(r"[^\w\s]", " ", raw_text)
+    clean_query = re.sub(r"[^\w\s]", " ", raw_query)
     words = [w for w in clean_query.split() if len(w) > 0]
-    regex_pattern = ".*".join([re.escape(w) for w in words]) if words else re.escape(raw_text)
+    regex_pattern = ".*".join([re.escape(w) for w in words]) if words else re.escape(raw_query)
 
     results = await asyncio.to_thread(db_search_movies, regex_pattern)
 
     if not results:
-        google_query_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(raw_text)}"
+        google_query_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(raw_query)}"
         no_results_text = (
-            f"<b>Sᴏʀʀʏ {user.first_name}</b>, <b>ɴᴏ ғɪʟᴇs ᴡᴇʀᴇ ғᴏᴜɴᴅ ғᴏʀ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ</b> <code>{raw_text}</code> 🙁\n\n"
+            f"<b>Sᴏʀʀʏ {user.first_name}</b>, <b>ɴᴏ ғɪʟᴇs ᴡᴇʀᴇ ғᴏᴜɴᴅ ғᴏʀ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ</b> <code>{raw_query}</code> 🙁\n\n"
             f"<b>Cʜᴇᴄᴋ ʏᴏᴜʀ sᴘᴇʟʟɪɴɢ ɪɴ Gᴏᴏɢʟᴇ ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ</b> 😃\n\n"
             f"📝 <b>Mᴏᴠɪᴇ ʀᴇǫᴜᴇsᴛ ғᴏʀᴍᴀᴛ</b> 👇\n\n"
             f"⚜️ <b>E x ᴀ ᴍ ᴘ ʟ ᴇ :</b> <code>Jawan</code> ᴏʀ <code>Jawan 2023</code>\n\n"
@@ -193,12 +203,12 @@ async def universal_message_handler(client, message):
         buttons.append([InlineKeyboardButton(f"📁 {display_name}", callback_data=f"get_{doc_id}")])
 
     await message.reply_text(
-        f"🎯 <b>Rᴇsᴜʟᴛs ғᴏʀ:</b> <code>{raw_text}</code>\n⚡ <b>Fᴏᴜɴᴅ Fɪʟᴇs:</b> <code>{len(results)}</code>",
+        f"🎯 <b>Rᴇsᴜʟᴛs ғᴏʀ:</b> <code>{raw_query}</code>\n⚡ <b>Fᴏᴜɴᴅ Fɪʟᴇs:</b> <code>{len(results)}</code>",
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
 # ==========================================
-# 5. CALLBACK HANDLERS
+# 7. CALLBACK HANDLERS (MENUS & FILE DELIVERY)
 # ==========================================
 @app.on_callback_query()
 async def bot_callbacks(client, query: CallbackQuery):
@@ -271,57 +281,33 @@ async def bot_callbacks(client, query: CallbackQuery):
     elif data.startswith("get_"):
         doc_id = data.split("get_", 1)[1]
         doc = await asyncio.to_thread(db_get_file_by_id, doc_id)
-        if doc:
-            sent = False
-            # 1. Primary: Copy message from DB channel
-            if doc.get("message_id") and doc.get("chat_id"):
-                try:
-                    await client.copy_message(
-                        chat_id=query.from_user.id,
-                        from_chat_id=doc["chat_id"],
-                        message_id=doc["message_id"]
-                    )
-                    sent = True
-                except Exception as ex:
-                    print(f"Copy Message Fallback: {ex}", flush=True)
-
-            # 2. Secondary: Cached media
-            if not sent and doc.get("file_id"):
-                try:
-                    await client.send_cached_media(chat_id=query.from_user.id, file_id=doc["file_id"])
-                    sent = True
-                except Exception as ex:
-                    print(f"Cached Media Fallback: {ex}", flush=True)
-
-            if not sent:
-                await query.answer("❌ File send error! Bot must be Admin in DB Channel.", show_alert=True)
+        if doc and doc.get("file_id"):
+            try:
+                await client.send_cached_media(chat_id=query.from_user.id, file_id=doc["file_id"])
+            except Exception as ex:
+                print(f"File Send Error: {ex}", flush=True)
+                await query.answer("❌ File send error!", show_alert=True)
         else:
-            await query.answer("❌ File database-e khuje paoa jayni!", show_alert=True)
+            await query.answer("❌ File not found in database!", show_alert=True)
 
 # ==========================================
-# 6. MAIN RUNNER
+# 8. MAIN ENTRY POINT
 # ==========================================
 async def main():
     await start_web_server()
     await app.start()
     print("🚀 BoultFlix Bot Started & Polling Telegram Updates 24/7!", flush=True)
 
-    # Graceful Log Channel Notification
-    if LOG_CHANNEL:
-        try:
-            startup_text = (
-                f"⚡ <b>Bᴏᴜʟᴛғʟɪx Mᴏᴠɪᴇs Bᴏᴛ Rᴇsᴛᴀʀᴛᴇᴅ!</b> 🚀\n\n"
-                f"👤 <b>Dᴇᴠᴇʟᴏᴘᴇʀ:</b> @BoultFlix\n"
-                f"🌐 <b>Sᴇʀᴠᴇʀ:</b> Rᴇɴᴅᴇʀ\n"
-                f"🟢 <b>Sᴛᴀᴛᴜs:</b> Oɴʟɪɴᴇ & Rᴇᴀᴅʏ"
-            )
-            await app.send_message(LOG_CHANNEL, startup_text)
-            print("📢 Startup notification sent to Log Channel!", flush=True)
-        except Exception:
-            pass
+    startup_text = (
+        f"⚡ <b>Bᴏᴜʟᴛғʟɪx Mᴏᴠɪᴇs Bᴏᴛ Rᴇsᴛᴀʀᴛᴇᴅ!</b> 🚀\n\n"
+        f"👤 <b>Dᴇᴠᴇʟᴏᴘᴇʀ:</b> @BoultFlix\n"
+        f"🌐 <b>Sᴇʀᴠᴇʀ:</b> Rᴇɴᴅᴇʀ\n"
+        f"🟢 <b>Sᴛᴀᴛᴜs:</b> Oɴʟɪɴᴇ & Rᴇᴀᴅʏ"
+    )
+    await asyncio.to_thread(send_telegram_http, startup_text)
 
-    while True:
-        await asyncio.sleep(3600)
+    await idle()
+    await app.stop()
 
 if __name__ == "__main__":
     asyncio.get_event_loop().run_until_complete(main())
