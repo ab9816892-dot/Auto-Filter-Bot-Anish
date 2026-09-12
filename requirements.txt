@@ -1,7 +1,10 @@
-pyrogram==2.0.106
+pyrofork
 tgcrypto
-motor==3.3.2
-pymongo[srv]==4.6.1
+pymongo[srv]
+motor
 aiohttp
+aiofiles
 requests
-cinemagoer
+dnspython
+Flask
+gunicorn
