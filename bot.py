@@ -5,6 +5,7 @@ import asyncio
 import urllib.parse
 import urllib.request
 import logging
+from bson.objectid import ObjectId
 from aiohttp import web
 from pyrogram import Client, filters, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -30,12 +31,11 @@ SUPPORT_BOT_URL = "https://t.me/BoultFlixSupportBot"
 
 REACTION_EMOJIS = ["🔥", "⚡", "❤️", "🥰", "🎉", "🤩", "👏", "👌", "🕊️", "😍", "💯", "💖", "🍓", "😎", "✨", "🎬", "🏆", "💎", "🚀"]
 
-# Clean Telegram Webhook so MTProto Receives All Messages
+# Clear old Webhook
 try:
     urllib.request.urlopen(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook?drop_pending_updates=true", timeout=5)
-    print("🧹 Old Webhooks Cleared & Pending Updates Dropped!", flush=True)
-except Exception as e:
-    print(f"⚠️ Webhook Clear Warning: {e}", flush=True)
+except Exception:
+    pass
 
 # MongoDB Connection
 MONGO_URI = "mongodb+srv://ab9816892_db_user:anish12345@cluster0.yogzcqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
@@ -53,7 +53,7 @@ app = Client(
 )
 
 # ==========================================
-# 2. KEEP-ALIVE WEB SERVER FOR RENDER
+# 2. RENDER KEEP-ALIVE SERVER
 # ==========================================
 async def handle_ping(request):
     return web.Response(text="BoultFlix 24/7 Live", status=200)
@@ -68,9 +68,8 @@ async def start_web_server():
     try:
         site = web.TCPSite(runner, "0.0.0.0", port)
         await site.start()
-        print(f"🌐 Keep-Alive Web Server running on port {port}", flush=True)
-    except Exception as e:
-        print(f"⚠️ Server info: {e}", flush=True)
+    except Exception:
+        pass
 
 # ==========================================
 # 3. HELPER FUNCTIONS
@@ -90,6 +89,12 @@ def db_add_user(user_id, name):
 def db_search_movies(query_pattern):
     return list(files_col.find({"file_name": {"$regex": query_pattern, "$options": "i"}}).limit(10))
 
+def db_get_file_by_id(doc_id):
+    try:
+        return files_col.find_one({"_id": ObjectId(doc_id)})
+    except Exception:
+        return None
+
 async def log_user(user):
     try:
         existing = await asyncio.to_thread(db_find_user, user.id)
@@ -105,15 +110,14 @@ async def log_user(user):
                     f"⚡ <b>Sᴛᴀᴛᴜs:</b> Bᴏᴛ Sᴛᴀʀᴛᴇᴅ"
                 )
                 await app.send_message(LOG_CHANNEL, log_text)
-    except Exception as e:
-        print(f"⚠️ User Log Error: {e}", flush=True)
+    except Exception:
+        pass
 
 # ==========================================
 # 4. /START HANDLER
 # ==========================================
 @app.on_message(filters.command("start") & filters.private)
 async def start_handler(client, message):
-    print(f"📩 /start command received from {message.from_user.first_name}", flush=True)
     asyncio.create_task(send_reaction(message))
     user = message.from_user
     asyncio.create_task(log_user(user))
@@ -136,15 +140,14 @@ async def start_handler(client, message):
         await message.reply_text(text=caption, reply_markup=buttons)
 
 # ==========================================
-# 5. MOVIE SEARCH (52,899 MONGODB DATABASE)
+# 5. MOVIE SEARCH (52K MONGODB DATABASE)
 # ==========================================
 @app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about"]))
 async def search_movie(client, message):
-    raw_query = message.text.strip()
-    print(f"🔍 Searching for: {raw_query}", flush=True)
     asyncio.create_task(send_reaction(message))
-
+    raw_query = message.text.strip()
     user = message.from_user
+
     clean_query = re.sub(r"[:_.\-+!?()\[\]]", " ", raw_query)
     words = clean_query.split()
     regex_pattern = ".*".join([re.escape(w) for w in words if len(w) > 0])
@@ -153,7 +156,7 @@ async def search_movie(client, message):
     try:
         results = await asyncio.to_thread(db_search_movies, regex_pattern)
     except Exception as e:
-        print(f"❌ DB Query Error: {e}", flush=True)
+        print(f"DB Search Error: {e}")
 
     if not results:
         google_query_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(raw_query)}"
@@ -174,11 +177,13 @@ async def search_movie(client, message):
         await message.reply_text(text=no_results_text, reply_markup=action_buttons, disable_web_page_preview=True)
         return
 
+    # SAFE 24-BYTE CALLBACK DATA (NEVER HITS TELEGRAM 64-BYTE LIMIT)
     buttons = []
     for res in results:
         file_name = res.get("file_name", "Download Video")
-        display_name = (file_name[:40] + "..") if len(file_name) > 42 else file_name
-        buttons.append([InlineKeyboardButton(f"📁 {display_name}", callback_data=f"file_{res.get('file_id')}")])
+        doc_id = str(res.get("_id"))
+        display_name = (file_name[:38] + "..") if len(file_name) > 40 else file_name
+        buttons.append([InlineKeyboardButton(f"📁 {display_name}", callback_data=f"get_{doc_id}")])
 
     await message.reply_text(
         f"🎯 <b>Rᴇsᴜʟᴛs ғᴏʀ:</b> <code>{raw_query}</code>\n⚡ <b>Fᴏᴜɴᴅ Fɪʟᴇs:</b> <code>{len(results)}</code>",
@@ -186,7 +191,7 @@ async def search_movie(client, message):
     )
 
 # ==========================================
-# 6. CALLBACK HANDLERS
+# 6. CALLBACK HANDLER (INSTANT FILE DELIVERY)
 # ==========================================
 @app.on_callback_query()
 async def bot_callbacks(client, query: CallbackQuery):
@@ -255,9 +260,7 @@ async def bot_callbacks(client, query: CallbackQuery):
         disclaimer_text = (
             "ᴛʜɪꜱ ɪꜱ ᴀɴ ᴏᴘᴇɴ ꜱᴏᴜʀᴄᴇ ᴘʀᴏᴊᴇᴄᴛ.\n\n"
             "ᴀʟʟ ᴛʜᴇ ꜰɪʟᴇꜱ ɪɴ ᴛʜɪꜱ ʙᴏᴛ ᴀʀᴇ ꜰʀᴇᴇʟʏ ᴀᴠᴀɪʟᴀʙʟᴇ ᴏɴ ᴛʜᴇ ɪɴᴛᴇʀɴᴇᴛ ᴏʀ ᴘᴏꜱᴛᴇᴅ ʙʏ ꜱᴏᴍᴇʙᴏᴅʏ ᴇʟꜱᴇ. "
-            "ᴊᴜꜱᴛ ꜰᴏʀ ᴇᴀꜱʏ ꜱᴇᴀʀᴄʜɪɴɢ ᴛʜɪꜱ ʙᴏᴛ ɪꜱ ɪɴᴅᴇxɪɴɢ ꜰɪʟᴇꜱ ᴡʜɪᴄʜ ᴀʀᴇ ᴀʟʀᴇᴀᴅʏ ᴜᴘʟᴏᴀᴅᴇᴅ ᴏɴ ᴛᴇʟᴇɢʀᴀᴍ. "
-            "ᴡᴇ ʀᴇꜱᴘᴇᴄᴛ ᴀʟʟ ᴛʜᴇ ᴄᴏᴘʏʀɪɢʜᴛ ʟᴀᴡꜱ ᴀɴᴅ ᴡᴏʀᴋꜱ ɪɴ ᴄᴏᴍᴘʟɪᴀɴᴄᴇ ᴡɪᴛʜ ᴅᴍᴄᴀ ᴀɴᴅ ᴇᴜᴄᴅ. "
-            "ɪꜰ ᴀɴʏᴛʜɪɴɢ ɪꜱ ᴀɢᴀɪɴꜱᴛ ʟᴀᴡ ᴘʟᴇᴀꜱᴇ ᴄᴏɴᴛᴀᴄᴛ ᴍᴇ ꜱᴏ ᴛʜᴀᴛ ɪᴛ ᴄᴀɴ ʙᴇ ʀᴇᴍᴏᴠᴇᴅ ᴀꜱᴀᴘ."
+            "ᴊᴜꜱᴛ ꜰᴏʀ ᴇᴀꜱʏ ꜱᴇᴀʀᴄʜɪɴɢ ᴛʜɪꜱ ʙᴏᴛ ɪꜱ ɪɴᴅᴇxɪɴɢ ꜰɪʟᴇꜱ ᴡʜɪᴄʜ ᴀʀᴇ ᴀʟʀᴇᴀᴅʏ ᴜᴘʟᴏᴀᴅᴇᴅ ᴏɴ ᴛᴇʟᴇɢʀᴀᴍ."
         )
         disclaimer_buttons = InlineKeyboardMarkup([[InlineKeyboardButton("⇋ Bᴀᴄᴋ ⇋", callback_data="about_menu")]])
         try:
@@ -265,12 +268,16 @@ async def bot_callbacks(client, query: CallbackQuery):
         except Exception:
             await query.message.edit_text(text=disclaimer_text, reply_markup=disclaimer_buttons)
 
-    elif data.startswith("file_"):
-        file_id = data.split("file_", 1)[1]
-        try:
-            await client.send_cached_media(chat_id=query.from_user.id, file_id=file_id)
-        except Exception:
-            await query.answer("❌ File pathate somosya hoyeche!", show_alert=True)
+    elif data.startswith("get_"):
+        doc_id = data.split("get_", 1)[1]
+        doc = await asyncio.to_thread(db_get_file_by_id, doc_id)
+        if doc and doc.get("file_id"):
+            try:
+                await client.send_cached_media(chat_id=query.from_user.id, file_id=doc["file_id"])
+            except Exception:
+                await query.answer("❌ File send korte somosya hoyeche!", show_alert=True)
+        else:
+            await query.answer("❌ File database-e khuje paoa jayni!", show_alert=True)
 
 # ==========================================
 # 7. MAIN ENTRY POINT
@@ -278,7 +285,7 @@ async def bot_callbacks(client, query: CallbackQuery):
 async def main():
     asyncio.create_task(start_web_server())
     await app.start()
-    print("🚀 BoultFlix Bot Started Successfully!", flush=True)
+    print("🚀 BoultFlix Bot Started Successfully!")
 
     if LOG_CHANNEL:
         try:
@@ -289,9 +296,8 @@ async def main():
                 f"🟢 <b>Sᴛᴀᴛᴜs:</b> Oɴʟɪɴᴇ & Rᴇᴀᴅʏ"
             )
             await app.send_message(LOG_CHANNEL, startup_text)
-            print("📢 Startup alert sent to Log Channel!", flush=True)
         except Exception as e:
-            print(f"⚠️ Log Channel Alert Error: {e}", flush=True)
+            print(f"⚠️ Log Channel Alert Error: {e}")
 
     await idle()
     await app.stop()
