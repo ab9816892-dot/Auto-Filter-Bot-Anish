@@ -39,44 +39,7 @@ async def send_reaction(message):
         pass
 
 # ==========================================
-# 1. /START HANDLER
-# ==========================================
-@app.on_message(filters.command("start") & filters.private)
-async def start_handler(client, message):
-    await send_reaction(message)
-
-    user = message.from_user
-    try:
-        await db_instance.add_user(user.id, user.first_name)
-    except Exception:
-        pass
-    
-    caption = (
-        f"Hᴇʏ 🍿 <b>{user.mention}</b> 🥷\n\n"
-        f"📍 <b>Wᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ᴡᴏʀʟᴅ's ᴄᴏᴏʟᴇsᴛ sᴇᴀʀᴄʜ ᴇɴɢɪɴᴇ! ⚡</b>\n\n"
-        f"Hᴇʀᴇ ʏᴏᴜ ᴄᴀɴ ʀᴇǫᴜᴇsᴛ ᴍᴏᴠɪᴇs & sᴇʀɪᴇs, ᴊᴜsᴛ sᴇɴᴅ ɴᴀᴍᴇ ᴡɪᴛʜ ᴘʀᴏᴘᴇʀ <b>Gᴏᴏɢʟᴇ sᴘᴇʟʟɪɴɢ</b>..!! 🫧🎬"
-    )
-    
-    buttons = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🔰 Aᴅᴅ Mᴇ Tᴏ Yᴏᴜʀ Gʀᴏᴜᴘ 🔰", url=f"https://t.me/{BOT_USERNAME}?startgroup=true")
-        ],
-        [
-            InlineKeyboardButton("📢 Uᴘᴅᴀᴛᴇs Cʜᴀɴɴᴇʟ 📢", url=UPDATES_CHANNEL_URL)
-        ],
-        [
-            InlineKeyboardButton("📑 Hᴇʟᴘ", callback_data="help_menu"),
-            InlineKeyboardButton("ℹ️ Aʙᴏᴜᴛ", callback_data="about_menu")
-        ]
-    ])
-    
-    try:
-        await message.reply_photo(photo=START_PIC, caption=caption, reply_markup=buttons)
-    except Exception:
-        await message.reply_text(text=caption, reply_markup=buttons)
-
-# ==========================================
-# 2. ADMIN /INDEX COMMAND
+# 2. ADMIN /INDEX COMMAND (OPTIMIZED)
 # ==========================================
 @app.on_message(filters.command("index") & filters.private)
 async def manual_index_handler(client, message):
@@ -85,11 +48,11 @@ async def manual_index_handler(client, message):
         await message.reply_text("⛔ <b>Aᴄᴄᴇss Dᴇɴɪᴇᴅ! Yᴏᴜ ᴀʀᴇ ɴᴏᴛ ᴀɴ Aᴅᴍɪɴ.</b>")
         return
 
-    status_msg = await message.reply_text("🔄 <b>Iɴᴅᴇxɪɴɢ Pʀᴏᴄᴇss Iɴɪᴛɪᴀᴛɪɴɢ... Pʟᴇᴀsᴇ Wᴀɪᴛ!</b>")
+    status_msg = await message.reply_text("🔄 <b>Iɴᴅᴇxɪɴɢ Pʀᴏᴄᴇss Sᴛᴀʀᴛɪɴɢ...</b>")
     target_chat = CHANNELS[0] if CHANNELS else -1004240578315
 
     try:
-        test_msg = await client.send_message(target_chat, "🔄 Initializing Indexing...")
+        test_msg = await client.send_message(target_chat, "🔄 Calculating IDs...")
         max_id = test_msg.id
         await test_msg.delete()
     except Exception as e:
@@ -98,6 +61,7 @@ async def manual_index_handler(client, message):
 
     total_indexed = 0
     batch_size = 200
+    last_update = 0
 
     for start_id in range(1, max_id + 1, batch_size):
         id_list = list(range(start_id, min(start_id + batch_size, max_id + 1)))
@@ -105,6 +69,7 @@ async def manual_index_handler(client, message):
         try:
             messages = await client.get_messages(target_chat, message_ids=id_list)
         except Exception:
+            await asyncio.sleep(1)
             continue
 
         for msg in messages:
@@ -115,7 +80,7 @@ async def manual_index_handler(client, message):
             if not media:
                 continue
 
-            # Minimum 100MB check
+            # Minimum 100MB filter
             if getattr(media, "file_size", 0) >= (100 * 1024 * 1024):
                 try:
                     await db_instance.save_file(media)
@@ -123,22 +88,26 @@ async def manual_index_handler(client, message):
                 except Exception:
                     pass
 
-        if start_id % 1000 < batch_size:
+        # Prottek 2000 messages por por UI update
+        if (start_id - last_update) >= 2000 or (start_id + batch_size) > max_id:
+            percentage = round((min(start_id + batch_size - 1, max_id) / max_id) * 100, 1)
             try:
                 await status_msg.edit_text(
-                    f"⚡ <b>Iɴᴅᴇxɪɴɢ Iɴ Pʀᴏɢʀᴇss...</b>\n\n"
+                    f"⚡ <b>Iɴᴅᴇxɪɴɢ Iɴ Pʀᴏɢʀᴇss ({percentage}%)...</b>\n\n"
                     f"📊 <b>Sᴄᴀɴɴᴇᴅ:</b> <code>{min(start_id + batch_size - 1, max_id)}/{max_id}</code>\n"
-                    f"📦 <b>Iɴᴅᴇxᴇᴅ Fɪʟᴇs:</b> <code>{total_indexed}</code>"
+                    f"📦 <b>Iɴᴅᴇxᴇᴅ Fɪʟᴇs:</b> <code>{total_indexed}</code>\n"
+                    f"⏳ <i>Scanning active, please wait...</i>"
                 )
+                last_update = start_id
             except Exception:
                 pass
 
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.2)
 
     await status_msg.edit_text(
         f"🎉 <b>Iɴᴅᴇxɪɴɢ 100% Cᴏᴍᴘʟᴇᴛᴇ!</b>\n\n"
-        f"✅ <b>Tᴏᴛᴀʟ Nᴇᴡ Vɪᴅᴇᴏs Iɴᴅᴇxᴇᴅ:</b> <code>{total_indexed}</code>\n"
-        f"⚡ <b>Sᴛᴀᴛᴜs:</b> Rᴇᴀᴅʏ ᴛᴏ sᴇᴀʀᴄʜ!"
+        f"✅ <b>Tᴏᴛᴀʟ Vɪᴅᴇᴏs Iɴᴅᴇxᴇᴅ:</b> <code>{total_indexed}</code>\n"
+        f"🚀 <b>Sᴛᴀᴛᴜs:</b> Search engine fully active!"
     )
 
 # ==========================================
