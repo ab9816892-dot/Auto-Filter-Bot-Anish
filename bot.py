@@ -30,7 +30,7 @@ SUPPORT_BOT_URL = "https://t.me/BoultFlixSupportBot"
 
 REACTION_EMOJIS = ["🔥", "⚡", "❤️", "🥰", "🎉", "🤩", "👏", "👌", "🕊️", "😍", "💯", "💖", "🍓", "😎", "✨", "🎬", "🏆", "💎", "🚀"]
 
-# MongoDB Connection
+# MongoDB Connection (52,899+ Movies)
 MONGO_URI = "mongodb+srv://ab9816892_db_user:anish12345@cluster0.yogzcqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 db = mongo_client["Cluster0"]
@@ -60,9 +60,9 @@ async def start_web_server():
     try:
         site = web.TCPSite(runner, "0.0.0.0", port)
         await site.start()
-        print(f"🌐 Keep-Alive Server active on port {port}", flush=True)
-    except Exception:
-        pass
+        print(f"✅ Web Server Live on Port: {port}", flush=True)
+    except Exception as e:
+        print(f"⚠️ Port Info: {e}", flush=True)
 
 # ==========================================
 # 3. HELPER FUNCTIONS
@@ -250,10 +250,12 @@ async def bot_callbacks(client, query: CallbackQuery):
             await query.answer("❌ File not found in DB!", show_alert=True)
 
 # ==========================================
-# 7. MAIN ENTRY POINT
+# 7. MAIN ENTRY POINT (UNBUFFERED LOGS)
 # ==========================================
 async def main():
+    print("⏳ Starting Web Server...", flush=True)
     await start_web_server()
+    print("⏳ Connecting to Telegram MTProto...", flush=True)
     await app.start()
     print("🚀 BoultFlix Bot Started & Polling Telegram Updates 24/7!", flush=True)
     await idle()
