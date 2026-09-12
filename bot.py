@@ -3,7 +3,8 @@ import random
 import asyncio
 import urllib.parse
 import logging
-from pyrogram import Client, filters
+from aiohttp import web
+from pyrogram import Client, filters, idle
 from pyrogram.types import (
     InlineKeyboardMarkup, 
     InlineKeyboardButton, 
@@ -22,9 +23,7 @@ START_PIC = "https://i.ibb.co/PZtMPSKf/boultflix-popcorn-cart.webp"
 UPDATES_CHANNEL_URL = "https://t.me/+f-k01NScSxEyNzc1"
 SUPPORT_BOT_URL = "https://t.me/BoultFlixSupportBot"
 
-# ==========================================
-# CUSTOM PREMIUM EMOJI POOL
-# ==========================================
+# Custom Animated Emoji IDs
 CUSTOM_EMOJI_IDS = [
     5210956306952758910, 5461117441612462242, 5456140674028019486, 5224607267797606837,
     5229064374403998351, 5447410659077661506, 5443038326535759644, 5467538555158943525,
@@ -49,7 +48,6 @@ CUSTOM_EMOJI_IDS = [
     5416041192905265756, 5460755126761312667, 5461151367559141950
 ]
 
-# Native Animated Fallback Emojis
 FREE_ANIMATED_REACTIONS = [
     "🔥", "⚡", "❤️", "🍿", "🥰", "🎉", "🤩", "👏", 
     "👌", "🕊️", "😍", "💯", "💖", "🍓", "🍾", "😎", 
@@ -63,7 +61,19 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-# Safe Background Non-blocking Reaction
+# Render Keep-Alive Web Server
+routes = web.RouteTableDef()
+
+@routes.get("/", allow_head=True)
+async def root_route(request):
+    return web.Response(text="BoultFlix Bot is Alive & Running 24/7!", status=200)
+
+async def web_server():
+    web_app = web.Application()
+    web_app.add_routes(routes)
+    return web_app
+
+# Background Non-blocking Reaction
 async def safe_react(message):
     chosen_id = random.choice(CUSTOM_EMOJI_IDS)
     try:
@@ -83,7 +93,10 @@ async def start_handler(client, message):
     asyncio.create_task(safe_react(message))
 
     user = message.from_user
-    await db_instance.add_user(user.id, user.first_name)
+    try:
+        await db_instance.add_user(user.id, user.first_name)
+    except Exception:
+        pass
     
     caption = (
         f"Hᴇʏ 🍿 <b>{user.mention}</b> 🥷\n\n"
@@ -214,7 +227,7 @@ async def bot_callbacks(client, query: CallbackQuery):
             await query.answer("❌ File pathate somossya hoyeche!", show_alert=True)
 
 # ==========================================
-# 3. AUTO-FILTER & NO RESULTS HANDLER
+# 3. AUTO-FILTER HANDLER
 # ==========================================
 @app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about"]))
 async def search_movie(client, message):
@@ -278,7 +291,25 @@ async def channel_indexer(client, message):
             await db_instance.save_file(media)
 
 # ==========================================
-# 5. MAIN ENTRY POINT
+# 5. ASYNC MAIN RUNNER (WEB SERVER + BOT)
 # ==========================================
+async def main():
+    # Start Telegram Bot
+    await app.start()
+    print("🚀 Bot Started & Connected to Telegram!")
+
+    # Start Aiohttp Web Server for Render Keep-Alive
+    web_server_app = await web_server()
+    runner = web.AppRunner(web_server_app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"🌐 Web Server listening on port: {port}")
+
+    # Keep bot running
+    await idle()
+    await app.stop()
+
 if __name__ == "__main__":
-    app.run()
+    asyncio.get_event_loop().run_until_complete(main())
