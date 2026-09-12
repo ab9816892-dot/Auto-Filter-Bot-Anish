@@ -13,8 +13,9 @@ FORCE_SUB_CHANNEL = os.environ.get("FORCE_SUB_CHANNEL", "-1004240578315")
 UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1004240578315"))
 LOG_CHANNEL = int(os.environ.get("LOG_CHANNEL", "-1004240578315"))
 
-# Database
-DATABASE_URI_1 = os.environ.get("DATABASE_URI_1", "")
+# Database (Both aliases supported)
+DATABASE_URI = os.environ.get("DATABASE_URI_1", os.environ.get("DATABASE_URI", ""))
+DATABASE_URI_1 = DATABASE_URI
 DATABASE_NAME = os.environ.get("DATABASE_NAME", "Cluster0")
 
 # TMDb & Auto-Post
