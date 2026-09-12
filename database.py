@@ -47,11 +47,11 @@ class Database:
         """Count total bot users"""
         return await self.users.count_documents({})
 
-    async def add_user(self, user_id, name):
-        """Register or update user"""
+    async def add_user(self, user_id, name="User"):
+        """Register or update user (safe with optional name)"""
         await self.users.update_one(
             {"user_id": user_id},
-            {"$set": {"name": name}},
+            {"$set": {"name": name if name else "User"}},
             upsert=True
         )
 
@@ -70,6 +70,6 @@ class Database:
             return False
         return user["verified_until"] > current_time
 
-# Bot.py-er dorkari instances & aliases
+# Bot.py instances & aliases
 db_instance = Database()
 db = db_instance
