@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO)
 START_PIC = "https://i.ibb.co/PZtMPSKf/boultflix-popcorn-cart.webp"
 
 # Update Channel Link
-UPDATES_CHANNEL_URL = "https://t.me/BoultFlix"
+UPDATES_CHANNEL_URL = "https://t.me/+f-k01NScSxEyNzc1"
 
 app = Client(
     "BoultFlixMovieBot",
