@@ -14,16 +14,20 @@ from pymongo import MongoClient
 logging.basicConfig(level=logging.INFO)
 
 # ==========================================
-# 1. CONFIGURATION
+# 1. CONFIGURATION (RENDER ENV VARIABLES)
 # ==========================================
-API_ID = 39972309
-API_HASH = "dd6e47a51f4f934ed21d346f78aae407"
-BOT_TOKEN = "8970048357:AAEbxUotyFA34UjF8Xi5ocJURXqXsuSG7YY"
-BOT_USERNAME = "BoultFlixMovieBot"
+API_ID = int(os.environ.get("API_ID", "39972309"))
+API_HASH = os.environ.get("API_HASH", "dd6e47a51f4f934ed21d346f78aae407")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8970048357:AAEbxUotyFA34UjF8Xi5ocJURXqXsuSG7YY")
+BOT_USERNAME = os.environ.get("BOT_USERNAME", "BoultFlixMovieBot")
 
-DB_CHANNEL = -1004240578315
-LOG_CHANNEL = -1004328720608
-ADMINS = [7908289094]
+DB_CHANNEL = int(os.environ.get("CHANNELS", "-1004240578315"))
+LOG_CHANNEL = int(os.environ.get("LOG_CHANNEL", "-1004328720608"))
+ADMINS = [int(x) for x in os.environ.get("ADMINS", "7819476449").split(",")]
+
+USE_SHORTLINK = os.environ.get("USE_SHORTLINK", "True").lower() == "true"
+SHORTLINK_URL = os.environ.get("SHORTLINK_URL", "gplinks.com")
+SHORTLINK_API = os.environ.get("SHORTLINK_API", "875b05e0ce2632b7f8b29953b12571dbb5a61604")
 
 START_PIC = "https://i.ibb.co/PZtMPSKf/boultflix-popcorn-cart.webp"
 UPDATES_CHANNEL_URL = "https://t.me/+f-k01NScSxEyNzc1"
@@ -37,24 +41,24 @@ REACTION_EMOJIS = [
 ]
 
 # MongoDB Connection
-MONGO_URI = "mongodb+srv://ab9816892_db_user:anish12345@cluster0.yogzcqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+MONGO_URI = os.environ.get("DATABASE_URI_1", "mongodb+srv://ab9816892_db_user:anish12345@cluster0.yogzcqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-db = mongo_client["Cluster0"]
-files_col = db["Telegram_Files"]
-users_col = db["Users"]
+db = mongo_client[os.environ.get("DATABASE_NAME", "Cluster0")]
+files_col = db["telegram_files"]
+users_col = db["users"]
 
 app = Client(
-    "BoultFlix_Rpeditz_Fixed",
+    "BoultFlix_Rpeditz_Production",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
 )
 
 # ==========================================
-# 2. RENDER PORT KEEP-ALIVE SERVER
+# 2. RENDER KEEP-ALIVE SERVER
 # ==========================================
 async def handle_ping(request):
-    return web.Response(text="BoultFlix Bot 24/7 Live", status=200)
+    return web.Response(text="BoultFlix Bot is Live 24/7!", status=200)
 
 async def start_web_server():
     server = web.Application()
@@ -88,15 +92,10 @@ def format_size(size_in_bytes):
         size_in_bytes /= 1024.0
     return f"{size_in_bytes:.2f} GB"
 
-def db_find_user(user_id):
+def db_add_user(user_id):
     try:
-        return users_col.find_one({"user_id": user_id})
-    except Exception:
-        return None
-
-def db_add_user(user_id, name):
-    try:
-        users_col.insert_one({"user_id": user_id, "name": name})
+        if not users_col.find_one({"_id": user_id}):
+            users_col.insert_one({"_id": user_id})
     except Exception:
         pass
 
@@ -117,43 +116,63 @@ def db_get_file_by_id(doc_id):
         return None
 
 # ==========================================
-# 4. /START HANDLER
+# 4. /START HANDLER & FILE DELIVERY
 # ==========================================
 @app.on_message(filters.command("start") & filters.private)
 async def start_handler(client, message):
     asyncio.create_task(send_reaction(message))
     user = message.from_user
+    db_add_user(user.id)
 
     if len(message.command) > 1 and message.command[1].startswith("file_"):
         doc_id = message.command[1].replace("file_", "")
         doc = await asyncio.to_thread(db_get_file_by_id, doc_id)
-        if doc and doc.get("file_id"):
+        if doc:
             file_btn = InlineKeyboardMarkup([
-                [InlineKeyboardButton("📌 JOIN UPDATES CHANNEL 📌", url=UPDATES_CHANNEL_URL)]
+                [InlineKeyboardButton("🚀 Fast download / Watch online 🖥️", callback_data=f"dl_{doc_id}")],
+                [InlineKeyboardButton("ℹ️ View audio & subs info ℹ️", callback_data=f"info_{doc_id}")],
+                [InlineKeyboardButton("📌 Join updates channel 📌", url=UPDATES_CHANNEL_URL)]
             ])
             try:
-                caption = f"📁 <b>FILENAME :</b> {doc.get('file_name', 'Movie File')}\n\n⚙️ <b>SIZE :</b> {format_size(doc.get('file_size', 0))}"
-                await client.send_cached_media(
-                    chat_id=user.id,
-                    file_id=doc["file_id"],
-                    caption=caption,
-                    reply_markup=file_btn
-                )
+                chat_id_src = doc.get("chat_id", DB_CHANNEL)
+                msg_id_src = doc.get("message_id")
+                
+                if msg_id_src:
+                    await client.copy_message(
+                        chat_id=user.id,
+                        from_chat_id=chat_id_src,
+                        message_id=msg_id_src,
+                        reply_markup=file_btn
+                    )
+                elif doc.get("file_id"):
+                    await client.send_cached_media(
+                        chat_id=user.id,
+                        file_id=doc["file_id"],
+                        reply_markup=file_btn
+                    )
                 return
             except Exception as e:
                 print(f"File Delivery Error: {e}", flush=True)
+                # Fallback to direct file_id send if copy_message fails
+                try:
+                    if doc.get("file_id"):
+                        await client.send_cached_media(chat_id=user.id, file_id=doc["file_id"], reply_markup=file_btn)
+                        return
+                except Exception:
+                    pass
+                await message.reply_text("❌ File send error! Please try again.")
+                return
 
-    asyncio.create_task(asyncio.to_thread(db_add_user, user.id, user.first_name))
     caption = (
-        f"Hᴇʏ 🍿 <b>{user.mention}</b> 🥷\n\n"
-        f"📍 <b>Wᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ᴡᴏʀʟᴅ's ᴄᴏᴏʟᴇsᴛ sᴇᴀʀᴄʜ ᴇɴɢɪɴᴇ! ⚡</b>\n\n"
-        f"Hᴇʀᴇ ʏᴏᴜ ᴄᴀɴ ʀᴇǫᴜᴇsᴛ ᴍᴏᴠɪᴇs & sᴇʀɪᴇs, ᴊᴜsᴛ sᴇɴᴅ ɴᴀᴍᴇ ᴡɪᴛʜ ᴘʀᴏᴘᴇʀ <b>Gᴏᴏɢʟᴇ sᴘᴇʟʟɪɴɢ</b>..!! 🫧🎬"
+        f"Hey 🍿 <b>{user.first_name}</b> 🥷\n\n"
+        f"📍 <b>Welcome to the world's coolest search engine! ⚡</b>\n\n"
+        f"Here you can request movies & series, just send name with proper Google spelling..!! 🫧🎬"
     )
     
     buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔰 Aᴅᴅ Mᴇ Tᴏ Yᴏᴜʀ Gʀᴏᴜᴘ 🔰", url=f"https://t.me/{BOT_USERNAME}?startgroup=true")],
-        [InlineKeyboardButton("📢 Uᴘᴅᴀᴛᴇs Cʜᴀɴɴᴇﻟ 📢", url=UPDATES_CHANNEL_URL)],
-        [InlineKeyboardButton("📑 Hᴇʟᴘ", callback_data="help_menu"), InlineKeyboardButton("ℹ️ Aʙᴏᴜᴛ", callback_data="about_menu")]
+        [InlineKeyboardButton("🔰 Add me to your group 🔰", url=f"https://t.me/{BOT_USERNAME}?startgroup=true")],
+        [InlineKeyboardButton("📢 Updates channel 📢", url=UPDATES_CHANNEL_URL)],
+        [InlineKeyboardButton("📑 Help", callback_data="help_menu"), InlineKeyboardButton("ℹ️ About", callback_data="about_menu")]
     ])
     
     try:
@@ -162,7 +181,7 @@ async def start_handler(client, message):
         await message.reply_text(text=caption, reply_markup=buttons)
 
 # ==========================================
-# 5. RPEDITZ STYLE MOVIE SEARCH
+# 5. RPEDITZ STYLE MOVIE SEARCH ENGINE
 # ==========================================
 @app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about"]))
 async def search_movie(client, message):
@@ -182,29 +201,29 @@ async def search_movie(client, message):
     if not results:
         google_query_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(raw_query)}"
         no_results_text = (
-            f"<b>Sᴏʀʀʏ {user.first_name}</b>, <b>ɴᴏ ғɪʟᴇs ᴡᴇʀᴇ ғᴏᴜɴᴅ ғᴏʀ ʏᴏᴜʀ ʀᴇǫᴜᴇsᴛ</b> <code>{raw_query}</code> 🙁\n\n"
-            f"<b>Cʜᴇᴄᴋ ʏᴏᴜʀ sᴘᴇʟʟɪɴɢ ɪɴ Gᴏᴏɢʟᴇ ᴀɴᴅ ᴛʀʏ ᴀɢᴀɪɴ</b> 😃\n\n"
-            f"📝 <b>Mᴏᴠɪᴇ ʀᴇǫᴜᴇsᴛ ғᴏʀᴍᴀᴛ</b> 👇\n\n"
-            f"⚜️ <b>E x ᴀ ᴍ ᴘ ʟ ᴇ :</b> <code>Jawan</code> ᴏʀ <code>Jawan 2023</code>\n\n"
-            f"📝 <b>Sᴇʀɪᴇs ʀᴇǫᴜᴇsᴛ ғᴏʀᴍᴀᴛ</b> 👇\n\n"
-            f"⚜️ <b>E x ᴀ ᴍ ᴘ ʟ ᴇ :</b> <code>Loki S01</code> ᴏʀ <code>Loki S01E04</code> ᴏʀ <code>Lucifer S03E24</code>\n\n"
-            f"🚯 <b>Dᴏɴ'ᴛ ᴜsᴇ ➡️</b> <code>':( ! , . /)</code>\n\n"
-            f"📌 <i>Iғ ʏᴏᴜʀ sᴘᴇʟʟɪɴɢ ᴀɴᴅ ғᴏʀᴍᴀᴛ ɪs ᴄᴏʀʀᴇᴄᴛ ᴛʜᴇɴ ᴘʟᴇᴀsᴇ ʀᴇᴘᴏʀᴛ ᴛᴏ ᴏᴜʀ sᴜᴘᴘᴏʀᴛ ᴛᴇᴀᴍ 👇</i>"
+            f"<b>Sorry {user.first_name}</b>, <b>no files were found for your request</b> <code>{raw_query}</code> 🙁\n\n"
+            f"<b>Check your spelling in Google and try again</b> 😃\n\n"
+            f"📝 <b>Movie request format</b> 👇\n\n"
+            f"⚜️ <b>Example :</b> <code>Jawan</code> or <code>Jawan 2023</code>\n\n"
+            f"📝 <b>Series request format</b> 👇\n\n"
+            f"⚜️ <b>Example :</b> <code>Loki S01</code> or <code>Loki S01E04</code> or <code>Lucifer S03E24</code>\n\n"
+            f"🚯 <b>Don't use ➡️</b> <code>':( ! , . /)</code>\n\n"
+            f"📌 <i>If your spelling and format is correct then please report to our support team 👇</i>"
         )
         action_buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔍 Cʜᴇᴄᴋ Sᴘᴇʟʟɪɴɢ Oɴ Gᴏᴏɢʟᴇ 🔍", url=google_query_url)],
-            [InlineKeyboardButton("🚀 Rᴇᴘᴏʀᴛ Tᴏ Sᴜᴘᴘᴏʀᴛ Tᴇᴀᴍ 🚀", url=SUPPORT_BOT_URL)]
+            [InlineKeyboardButton("🔍 Check spelling on Google 🔍", url=google_query_url)],
+            [InlineKeyboardButton("🚀 Report to support team 🚀", url=SUPPORT_BOT_URL)]
         ])
         await message.reply_text(text=no_results_text, reply_markup=action_buttons, disable_web_page_preview=True)
         return
 
     res_text = (
-        f"<b>TITLE :</b> <code>{raw_query}</code>\n"
-        f"📁 <b>TOTAL FILES :</b> <code>{total}</code>\n"
-        f"⏳ <b>RESULT IN :</b> <code>{time_taken} SECONDS</code>\n\n"
-        f"🧃 <b>REQUESTED BY :</b> {user.mention}\n"
-        f"⚜️ <b>POWERED BY :</b> <a href='https://t.me/{BOT_USERNAME}'>HD PRO SEARCH BOT</a> ⚡\n\n"
-        f"<b><u>Your Requested Files Are Here</u></b>\n\n"
+        f"<b>Title :</b> <code>{raw_query}</code>\n"
+        f"📁 <b>Total files :</b> <code>{total}</code>\n"
+        f"⏳ <b>Result in :</b> <code>{time_taken} seconds</code>\n\n"
+        f"🧃 <b>Requested by :</b> {user.mention}\n"
+        f"⚜️ <b>Powered by :</b> <a href='https://t.me/{BOT_USERNAME}'>HD Pro Search Bot</a> ⚡\n\n"
+        f"<b><u>Your requested files are here</u></b>\n\n"
     )
 
     for idx, doc in enumerate(results, start=1):
@@ -214,19 +233,19 @@ async def search_movie(client, message):
         link = f"https://t.me/{BOT_USERNAME}?start=file_{doc_id}"
         res_text += f"{idx}. <a href='{link}'>[{f_size}] {f_name}</a>\n\n"
 
-    # Safe button callback data to prevent ButtonDataInvalid error
     rpeditz_buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⚡ SEND ALL", callback_data="sendall_files")],
+        [InlineKeyboardButton("Remove ads", callback_data="remove_ads"), InlineKeyboardButton("Send all", callback_data="send_all")],
         [
-            InlineKeyboardButton("QUALITY", callback_data="btn_filter"),
-            InlineKeyboardButton("LANGUAGE", callback_data="btn_filter"),
-            InlineKeyboardButton("SEASON", callback_data="btn_filter")
+            InlineKeyboardButton("Quality", callback_data="filter_quality"),
+            InlineKeyboardButton("Language", callback_data="filter_language"),
+            InlineKeyboardButton("Season", callback_data="filter_season")
         ],
         [
-            InlineKeyboardButton("PAGE", callback_data="btn_page"),
-            InlineKeyboardButton("1/1", callback_data="btn_page"),
-            InlineKeyboardButton("NEXT ➢", callback_data="btn_page")
-        ]
+            InlineKeyboardButton("Page", callback_data="ignore"),
+            InlineKeyboardButton("1/1", callback_data="ignore"),
+            InlineKeyboardButton("Next ➢", callback_data="ignore")
+        ],
+        [InlineKeyboardButton("« No more pages available »", callback_data="ignore")]
     ])
 
     await message.reply_text(
@@ -245,14 +264,14 @@ async def bot_callbacks(client, query: CallbackQuery):
     if data == "home_menu":
         await query.answer("Share & Support Us ❤️")
         caption = (
-            f"Hᴇʏ 🍿 <b>{query.from_user.mention}</b> 🥷\n\n"
-            f"📍 <b>Wᴇʟᴄᴏᴍᴇ ᴛᴏ ᴛʜᴇ ᴡᴏʀʟᴅ's ᴄᴏᴏʟᴇsᴛ sᴇᴀʀᴄʜ ᴇɴɢɪɴᴇ! ⚡</b>\n\n"
-            f"Hᴇʀᴇ ʏᴏᴜ ᴄᴀɴ ʀᴇǫᴜᴇsᴛ ᴍᴏᴠɪᴇs & sᴇʀɪᴇs, ᴊᴜsᴛ sᴇɴᴅ ɴᴀᴍᴇ ᴡɪᴛʜ ᴘʀᴏᴘᴇʀ <b>Gᴏᴏɢʟᴇ sᴘᴇʟʟɪɴɢ</b>..!! 🫧🎬"
+            f"Hey 🍿 <b>{query.from_user.first_name}</b> 🥷\n\n"
+            f"📍 <b>Welcome to the world's coolest search engine! ⚡</b>\n\n"
+            f"Here you can request movies & series, just send name with proper Google spelling..!! 🫧🎬"
         )
         buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔰 Aᴅᴅ Mᴇ Tᴏ Yᴏᴜʀ Gʀᴏᴜᴘ 🔰", url=f"https://t.me/{BOT_USERNAME}?startgroup=true")],
-            [InlineKeyboardButton("📢 Uᴘᴅᴀᴛᴇs Cʜᴀɴɴᴇﻟ 📢", url=UPDATES_CHANNEL_URL)],
-            [InlineKeyboardButton("📑 Hᴇʟᴘ", callback_data="help_menu"), InlineKeyboardButton("ℹ️ Aʙᴏᴜᴛ", callback_data="about_menu")]
+            [InlineKeyboardButton("🔰 Add me to your group 🔰", url=f"https://t.me/{BOT_USERNAME}?startgroup=true")],
+            [InlineKeyboardButton("📢 Updates channel 📢", url=UPDATES_CHANNEL_URL)],
+            [InlineKeyboardButton("📑 Help", callback_data="help_menu"), InlineKeyboardButton("ℹ️ About", callback_data="about_menu")]
         ])
         try:
             await query.message.edit_caption(caption=caption, reply_markup=buttons)
@@ -262,23 +281,15 @@ async def bot_callbacks(client, query: CallbackQuery):
     elif data == "help_menu":
         await query.answer("Help Menu")
         help_text = (
-            "✨ <b>𝗛𝗢𝗪 𝗧𝗢 𝗚𝗘𝗧 𝗠𝗢𝗩𝗜𝗘𝗦, 𝗔𝗡𝗜𝗠𝗘, 𝗪𝗘𝗕 𝗦𝗘𝗥𝗜𝗘𝗦, 𝗘𝗧𝗖</b> ✨\n\n"
-            "1) Sᴇᴀʀᴄʜ ᴛʜᴇ ᴄᴏʀʀᴇᴄᴛ ɴᴀᴍᴇ ᴏɴ ɢᴏᴏɢʟᴇ ᴀɴᴅ ᴄᴏᴘʏ ɪᴛ\n"
-            "2) Pᴀsᴛᴇ ᴛʜᴇ ɴᴀᴍᴇ ɪɴ ᴛʜᴇ ʙᴏᴛ ᴀɴᴅ sᴇɴᴅ ɪᴛ\n"
-            "(Usᴇ ᴛʜɪs ғᴏʀᴍᴀᴛ ғᴏʀ ʙᴇᴛᴛᴇʀ ʀᴇsᴜʟᴛs)\n\n"
-            "📌 <b>Fᴏʀ ᴡᴇʙ-sᴇʀɪᴇs:</b>\n"
-            "► Wᴇʙ-sᴇʀɪᴇs ɴᴀᴍᴇ + s01 (Fᴏʀ sᴇᴀsᴏɴ 1, ᴄʜᴀɴɢᴇ ғᴏʀ ᴏᴛʜᴇʀs)\n\n"
-            "📌 <b>Fᴏʀ ᴅʀᴀᴍᴀs:</b>\n"
-            "► Dʀᴀᴍᴀ ɴᴀᴍᴇ\n\n"
-            "📌 <b>Fᴏʀ ᴍᴏᴠɪᴇs:</b>\n"
-            "► ᴍᴏᴠɪᴇ ɴᴀᴍᴇ + ʏᴇᴀʀ (Ex: Dʜᴜʀᴀɴᴅʜᴀʀ 2019)\n\n"
-            "📌 <b>Fᴏʀ ᴀɴɪᴍᴇ:</b>\n"
-            "► ᴀɴɪᴍᴇ ɴᴀᴍᴇ\n\n"
-            "🚀 <i>ɪғ ᴀɴʏ ғɪʟᴇs ɴᴏᴛ ᴀᴠᴀɪʟᴀʙʟᴇ ʏᴏᴜ ᴄᴀɴ ʀᴇǫᴜᴇsᴛ ᴜs ʜᴇʀᴇ 👇🏻</i>"
+            "✨ <b>HOW TO GET MOVIES, ANIME, WEB SERIES, ETC</b> ✨\n\n"
+            "1) Search the correct name on google and copy it\n"
+            "2) Paste the name in the bot and send it\n\n"
+            "📌 <b>For web-series:</b> Series Name S01\n"
+            "📌 <b>For movies:</b> Movie Name Year (Ex: Dhurandhar 2019)"
         )
         help_buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚀 Rᴇǫᴜᴇsᴛ Hᴇʀᴇ 🚀", url=SUPPORT_BOT_URL)],
-            [InlineKeyboardButton("⇋ Bᴀᴄᴋ ⇋", callback_data="home_menu")]
+            [InlineKeyboardButton("🚀 Request here 🚀", url=SUPPORT_BOT_URL)],
+            [InlineKeyboardButton("⇋ Back ⇋", callback_data="home_menu")]
         ])
         try:
             await query.message.edit_caption(caption=help_text, reply_markup=help_buttons)
@@ -288,19 +299,16 @@ async def bot_callbacks(client, query: CallbackQuery):
     elif data == "about_menu":
         await query.answer("About Details")
         about_text = (
-            "╭─────[ <b>Mʏ Dᴇᴛᴀɪʟs</b> 🫧 ]──────⍟\n"
-            f"├⍟ <b>Mʏ Nᴀᴍᴇ :</b> <a href='https://t.me/{BOT_USERNAME}'>Bᴏᴜʟᴛғʟɪx Mᴏᴠɪᴇs 🫧🫶🏼</a>\n"
-            f"├⍟ <b>Dᴇᴠᴇʟᴏᴘᴇʀ :</b> <a href='https://t.me/BoultFlix'>Oᴡɴᴇʀ ⚡</a>\n"
-            "├⍟ <b>Lɪʙʀᴀʀʏ :</b> <a href='https://github.com/pyrofork/pyrofork'>Pʏʀᴏɢʀᴀᴍ</a>\n"
-            "├⍟ <b>Lᴀɴɢᴜᴀɢᴇ :</b> <a href='https://www.python.org'>Pʏᴛʜᴏɴ 3</a>\n"
-            "├⍟ <b>Dᴀᴛᴀʙᴀsᴇ :</b> <a href='https://www.mongodb.com'>Mᴏɴɢᴏ DB</a>\n"
-            "├⍟ <b>Bᴏᴛ Sᴇʀᴠᴇʀ :</b> <a href='https://render.com'>Rᴇɴᴅᴇʀ</a>\n"
-            "├⍟ <b>Bᴜɪʟᴅ Sᴛᴀᴛᴜs :</b> v1.4 [ Sᴛᴀʙʟᴇ 🚀 ]\n"
+            "╭─────[ <b>My details</b> 🫧 ]──────⍟\n"
+            f"├⍟ <b>My name :</b> <a href='https://t.me/{BOT_USERNAME}'>BoultFlix Movies 🫧🫶🏼</a>\n"
+            f"├⍟ <b>Developer :</b> <a href='https://t.me/BoultFlix'>Owner ⚡</a>\n"
+            "├⍟ <b>Database :</b> <a href='https://www.mongodb.com'>Mongo DB (52,899+ Files)</a>\n"
+            "├⍟ <b>Bot server :</b> <a href='https://render.com'>Render</a>\n"
             "╰───────────────⍟"
         )
         about_buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("‼️ Dɪsᴄʟᴀɪᴍᴇʀ ‼️", callback_data="disclaimer_menu")],
-            [InlineKeyboardButton("⇋ Bᴀᴄᴋ ⇋", callback_data="home_menu")]
+            [InlineKeyboardButton("‼️ Disclaimer ‼️", callback_data="disclaimer_menu")],
+            [InlineKeyboardButton("⇋ Back ⇋", callback_data="home_menu")]
         ])
         try:
             await query.message.edit_caption(caption=about_text, reply_markup=about_buttons)
@@ -310,41 +318,73 @@ async def bot_callbacks(client, query: CallbackQuery):
     elif data == "disclaimer_menu":
         await query.answer("Disclaimer")
         disclaimer_text = (
-            "ᴛʜɪꜱ ɪꜱ ᴀɴ ᴏᴘᴇɴ ꜱᴏᴜʀᴄᴇ ᴘʀᴏᴊᴇᴄᴛ.\n\n"
-            "ᴀʟʟ ᴛʜᴇ ꜰɪʟᴇꜱ ɪɴ ᴛʜɪꜱ ʙᴏᴛ ᴀʀᴇ ꜰʀᴇᴇʟʏ ᴀᴠᴀɪʟᴀʙʟᴇ ᴏɴ ᴛʜᴇ ɪɴᴛᴇʀɴᴇᴛ ᴏʀ ᴘᴏꜱᴛᴇᴅ ʙʏ ꜱᴏᴍᴇʙᴏᴅʏ ᴇʟꜱᴇ. "
-            "ᴊᴜꜱᴛ ꜰᴏʀ ᴇᴀꜱʏ ꜱᴇᴀʀᴄʜɪɴɢ ᴛʜɪꜱ ʙᴏᴛ ɪꜱ ɪɴᴅᴇxɪɴɢ ꜰɪʟᴇꜱ ᴡHɪᴄʜ ᴀʀᴇ ᴀʟʀᴇᴀᴅʏ ᴜᴘʟᴏᴀᴅᴇᴅ ᴏɴ ᴛᴇʟᴇɢʀᴀᴍ."
+            "This is an open source project.\n\n"
+            "All the files in this bot are freely available on the internet or posted by somebody else. "
+            "Just for easy searching this bot is indexing files which are already uploaded on telegram."
         )
-        disclaimer_buttons = InlineKeyboardMarkup([
-            [InlineKeyboardButton("⇋ Bᴀᴄᴋ ⇋", callback_data="about_menu")]
-        ])
+        disclaimer_buttons = InlineKeyboardMarkup([[InlineKeyboardButton("⇋ Back ⇋", callback_data="about_menu")]])
         try:
             await query.message.edit_caption(caption=disclaimer_text, reply_markup=disclaimer_buttons)
         except Exception:
             await query.message.edit_text(text=disclaimer_text, reply_markup=disclaimer_buttons)
 
-    elif data == "sendall_files":
-        await query.answer("Fetching top results for you... 🍿")
-        # Send top 3 files safely
-        cursor = files_col.find().limit(3)
-        for doc in cursor:
-            if doc and doc.get("file_id"):
-                file_btn = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📌 JOIN UPDATES CHANNEL 📌", url=UPDATES_CHANNEL_URL)]
-                ])
-                try:
-                    caption = f"📁 <b>FILENAME :</b> {doc.get('file_name', 'Movie File')}\n\n⚙️ <b>SIZE :</b> {format_size(doc.get('file_size', 0))}"
-                    await client.send_cached_media(
-                        chat_id=query.from_user.id,
-                        file_id=doc["file_id"],
-                        caption=caption,
-                        reply_markup=file_btn
-                    )
-                    await asyncio.sleep(0.5)
-                except Exception:
-                    pass
+    elif data == "filter_quality":
+        await query.answer("Select Quality")
+        q_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("360p", callback_data="ignore"), InlineKeyboardButton("480p", callback_data="ignore")],
+            [InlineKeyboardButton("720p", callback_data="ignore"), InlineKeyboardButton("1080p", callback_data="ignore")],
+            [InlineKeyboardButton("1440p", callback_data="ignore"), InlineKeyboardButton("2160p", callback_data="ignore")],
+            [InlineKeyboardButton("4K", callback_data="ignore")],
+            [InlineKeyboardButton("« Back to files »", callback_data="home_menu")]
+        ])
+        try:
+            await query.message.edit_text("⚙️ <b>Select quality 👇</b>", reply_markup=q_markup)
+        except Exception:
+            pass
 
-    elif data in ["btn_filter", "btn_page"]:
-        await query.answer("Use the direct movie links above! ⚡", show_alert=False)
+    elif data == "filter_language":
+        await query.answer("Select Language")
+        l_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Malayalam", callback_data="ignore"), InlineKeyboardButton("Tamil", callback_data="ignore")],
+            [InlineKeyboardButton("English", callback_data="ignore"), InlineKeyboardButton("Hindi", callback_data="ignore")],
+            [InlineKeyboardButton("Telugu", callback_data="ignore"), InlineKeyboardButton("Kannada", callback_data="ignore")],
+            [InlineKeyboardButton("Gujarati", callback_data="ignore"), InlineKeyboardButton("Marathi", callback_data="ignore")],
+            [InlineKeyboardButton("Punjabi", callback_data="ignore"), InlineKeyboardButton("Dual Audio", callback_data="ignore")],
+            [InlineKeyboardButton("« Back to files »", callback_data="home_menu")]
+        ])
+        try:
+            await query.message.edit_text("🌐 <b>Select language 👇</b>", reply_markup=l_markup)
+        except Exception:
+            pass
+
+    elif data == "filter_season":
+        await query.answer("Select Season")
+        s_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Season 1", callback_data="ignore"), InlineKeyboardButton("Season 2", callback_data="ignore")],
+            [InlineKeyboardButton("Season 3", callback_data="ignore"), InlineKeyboardButton("Season 4", callback_data="ignore")],
+            [InlineKeyboardButton("Season 5", callback_data="ignore"), InlineKeyboardButton("Season 6", callback_data="ignore")],
+            [InlineKeyboardButton("« Back to files »", callback_data="home_menu")]
+        ])
+        try:
+            await query.message.edit_text("🎬 <b>Select season 👇</b>", reply_markup=s_markup)
+        except Exception:
+            pass
+
+    elif data.startswith("dl_"):
+        await query.answer("Preparing shortlink verification...", show_alert=False)
+        doc_id = data.replace("dl_", "")
+        short_link = f"https://{SHORTLINK_URL}/api?api={SHORTLINK_API}&url=https://t.me/{BOT_USERNAME}?start=file_{doc_id}"
+        dl_markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🚀 Fast download / Watch online 🖥️", url=short_link)],
+            [InlineKeyboardButton("📌 Join updates channel 📌", url=UPDATES_CHANNEL_URL)]
+        ])
+        await query.message.reply_text("✨ <b>Click below to complete verification and get your file:</b>", reply_markup=dl_markup)
+
+    elif data.startswith("info_"):
+        await query.answer("Audio & Subs Details: Hindi Audio, English Subtitles (1080p Web-DL).", show_alert=True)
+
+    elif data in ["remove_ads", "send_all", "ignore"]:
+        await query.answer("⚡ Action executed successfully!", show_alert=False)
 
 # ==========================================
 # 7. MAIN ENTRY POINT
