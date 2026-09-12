@@ -1,4 +1,6 @@
 import os
+import random
+import urllib.parse
 import logging
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
@@ -13,6 +15,9 @@ START_PIC = "https://i.ibb.co/PZtMPSKf/boultflix-popcorn-cart.webp"
 # Update Channel Link
 UPDATES_CHANNEL_URL = "https://t.me/+f-k01NScSxEyNzc1"
 
+# Trending Reactions List
+REACTION_EMOJIS = ["🔥", "⚡", "❤️", "👍", "🍿", "🥰", "🎉", "💯"]
+
 app = Client(
     "BoultFlixMovieBot",
     api_id=API_ID,
@@ -25,6 +30,12 @@ app = Client(
 # ==========================================
 @app.on_message(filters.command("start") & filters.private)
 async def start_handler(client, message):
+    # Auto Reaction
+    try:
+        await message.react(emoji=random.choice(REACTION_EMOJIS))
+    except Exception:
+        pass
+
     user = message.from_user
     await db_instance.add_user(user.id, user.first_name)
     
@@ -59,10 +70,8 @@ async def start_handler(client, message):
 async def bot_callbacks(client, query: CallbackQuery):
     data = query.data
     
-    # Custom Toast Pop-up
     await query.answer("Share & Support Us ❤️")
 
-    # --- HOME / START MENU ---
     if data == "home_menu":
         caption = (
             f"ʜᴇʏ 🍿 <b>{query.from_user.mention}</b> 🥷\n\n"
@@ -86,7 +95,6 @@ async def bot_callbacks(client, query: CallbackQuery):
         except Exception:
             await query.message.edit_text(text=caption, reply_markup=buttons)
 
-    # --- HELP MENU ---
     elif data == "help_menu":
         help_text = (
             "✨ <b>𝗛𝗢𝗪 𝗧𝗢 𝗚𝗘𝗧 𝗠𝗢𝗩𝗜𝗘𝗦,𝗔𝗡𝗜𝗠𝗘,𝗪𝗘𝗕 𝗦𝗘𝗥𝗜𝗘𝗦,𝗘𝗧𝗖</b> ✨\n\n"
@@ -112,7 +120,6 @@ async def bot_callbacks(client, query: CallbackQuery):
         except Exception:
             await query.message.edit_text(text=help_text, reply_markup=help_buttons)
 
-    # --- ABOUT MENU (HYPERLINKED TO OFFICIAL SOURCES) ---
     elif data == "about_menu":
         about_text = (
             "╭─────[ <b>ᴍʏ ᴅᴇᴛᴀɪʟꜱ</b> 🫧 ]──────⍟\n"
@@ -134,7 +141,6 @@ async def bot_callbacks(client, query: CallbackQuery):
         except Exception:
             await query.message.edit_text(text=about_text, reply_markup=about_buttons)
 
-    # --- DISCLAIMER MENU ---
     elif data == "disclaimer_menu":
         disclaimer_text = (
             "ᴛʜɪꜱ ɪꜱ ᴀɴ ᴏᴘᴇɴ ꜱᴏᴜʀᴄᴇ ᴘʀᴏᴊᴇᴄᴛ.\n\n"
@@ -155,7 +161,6 @@ async def bot_callbacks(client, query: CallbackQuery):
         except Exception:
             await query.message.edit_text(text=disclaimer_text, reply_markup=disclaimer_buttons)
 
-    # --- FILE SEND HANDLER ---
     elif data.startswith("file_"):
         file_id = data.split("file_", 1)[1]
         try:
@@ -164,16 +169,44 @@ async def bot_callbacks(client, query: CallbackQuery):
             await query.answer("❌ File pathate somossya hoyeche!", show_alert=True)
 
 # ==========================================
-# 3. AUTO-FILTER / MOVIE SEARCH HANDLER
+# 3. AUTO-FILTER & RPEDITZ NO-RESULTS HANDLER
 # ==========================================
 @app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about"]))
 async def search_movie(client, message):
+    # Instant Random Reaction to user's message
+    try:
+        await message.react(emoji=random.choice(REACTION_EMOJIS))
+    except Exception:
+        pass
+
     query = message.text.strip()
+    user = message.from_user
     results, total = await db_instance.get_search_results(query, max_results=10)
+    
+    # RPEDITZ STYLE NO RESULTS FOUND TEMPLATE
     if not results:
+        google_query_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(query)}"
+        
+        no_results_text = (
+            f"<b>{user.first_name}</b> 🦅❤️\n"
+            f"<blockquote><b>{query}</b></blockquote>\n"
+            f"<b>SORRY NO FILES WERE FOUND FOR YOUR REQUEST</b> <code>{query}</code> 🙁\n\n"
+            f"<b>CHECK YOUR SPELLING IN GOOGLE AND TRY AGAIN</b> 😃\n\n"
+            f"📝 <b>MOVIE REQUEST FORMAT</b> 👇\n\n"
+            f"⚜️ <b>EXAMPLE :</b> <code>Jawan</code> or <code>Jawan 2023</code>\n\n"
+            f"📝 <b>SERIES REQUEST FORMAT</b> 👇\n\n"
+            f"⚜️ <b>EXAMPLE :</b> <code>Loki S01</code> or <code>Loki S01E04</code> or <code>Lucifer S03E24</code>\n\n"
+            f"🚯 <b>DONT USE ➡️ ':( ! , . /)</b>"
+        )
+        
+        google_btn = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔍 CHECK SPELLING ON GOOGLE 🔍", url=google_query_url)]
+        ])
+        
         await message.reply_text(
-            f"❌ <b>ɴᴏ ʀᴇꜱᴜʟᴛꜱ ғᴏᴜɴᴅ ғᴏʀ:</b> <code>{query}</code>\n\n"
-            f"💡 <i>ɢᴏᴏɢʟᴇ-ᴇ ꜱᴘᴇʟʟɪɴɢ ᴄʜᴇᴄᴋ ᴋᴏʀᴏ ʙᴀ <a href='https://t.me/BoultFlixSupportBot'>ꜱᴜᴘᴘᴏʀᴛ ʙᴏᴛ</a>-ᴇ ʀᴇǫᴜᴇꜱᴛ ᴋᴏʀᴏ!</i>"
+            text=no_results_text,
+            reply_markup=google_btn,
+            disable_web_page_preview=True
         )
         return
         
