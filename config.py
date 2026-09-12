@@ -1,27 +1,27 @@
 import os
 
-# Telegram API Setup
+# Telegram API Credentials
 API_ID = int(os.environ.get("API_ID", "39972309"))
 API_HASH = os.environ.get("API_HASH", "dd6e47a51f4f934ed21d346f78aae407")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-BOT_USERNAME = os.environ.get("BOT_USERNAME", "")
-ADMINS = [int(admin) for admin in os.environ.get("ADMINS", "").split() if admin]
+BOT_USERNAME = os.environ.get("BOT_USERNAME", "").replace("@", "")
 
-# Database & Channels
-DATABASE_URI = os.environ.get("DATABASE_URI", "mongodb+srv://ab9816892_db_user:Fdohpq7hpwb7wLrW@cluster0.yogzcqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
-DATABASE_NAME = os.environ.get("DATABASE_NAME", "Cluster0")
-CHANNELS = [int(ch) for ch in os.environ.get("CHANNELS", "-1004240578315").split() if ch]
+# Admin & Channel IDs
+ADMINS = [int(admin) for admin in os.environ.get("ADMINS", "7067885693").split()]
+CHANNELS = [int(ch) for ch in os.environ.get("CHANNELS", "-1004240578315").split()]
+FORCE_SUB_CHANNEL = os.environ.get("FORCE_SUB_CHANNEL", "-1004240578315")
 UPDATE_CHANNEL = int(os.environ.get("UPDATE_CHANNEL", "-1004240578315"))
-LOG_CHANNEL = int(os.environ.get("LOG_CHANNEL", "0"))
+LOG_CHANNEL = int(os.environ.get("LOG_CHANNEL", "-1004240578315"))
 
-# TMDb Integration & Auto-Post
+# Database
+DATABASE_URI_1 = os.environ.get("DATABASE_URI_1", "")
+DATABASE_NAME = os.environ.get("DATABASE_NAME", "Cluster0")
+
+# TMDb & Auto-Post
 TMDB_API_KEY = os.environ.get("TMDB_API_KEY", "c357c290aea604400f0d2b8e198db943")
 AUTO_POST = os.environ.get("AUTO_POST", "True").lower() == "true"
 
-# 24-Hour Shortlink Token System
+# Shortlink Settings
 USE_SHORTLINK = os.environ.get("USE_SHORTLINK", "False").lower() == "true"
-SHORTLINK_URL = os.environ.get("SHORTLINK_URL", "shareus.io")
+SHORTLINK_URL = os.environ.get("SHORTLINK_URL", "gplinks.com")
 SHORTLINK_API = os.environ.get("SHORTLINK_API", "")
-VERIFY_EXPIRE = int(os.environ.get("VERIFY_EXPIRE", 86400))  # 86400 sec = 24 Hours
-
-MAX_RESULTS = int(os.environ.get("MAX_RESULTS", 10))
