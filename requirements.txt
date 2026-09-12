@@ -1,3 +1,5 @@
 pyrofork
-pymongo[srv]
+pymongo
+dnspython
 aiohttp
+flask
