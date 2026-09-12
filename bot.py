@@ -4,6 +4,7 @@ import random
 import asyncio
 import urllib.parse
 import logging
+from aiohttp import web
 from pyrogram import Client, filters, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from pymongo import MongoClient
@@ -11,14 +12,14 @@ from pymongo import MongoClient
 logging.basicConfig(level=logging.INFO)
 
 # ==========================================
-# 1. CONFIGURATION (ACCURATE IDS)
+# 1. CONFIGURATION & CREDENTIALS
 # ==========================================
 API_ID = 39972309
 API_HASH = "dd6e47a51f4f934ed21d346f78aae407"
 BOT_TOKEN = "8520883339:AAG-ZmU0e2FiehtEoiZtLuCl852bVMydgVE"
 BOT_USERNAME = "BoultFlixMovieBot"
 
-# Exact Channels & Admins
+# Exact Channel IDs
 DB_CHANNEL = -1004240578315
 LOG_CHANNEL = -1004328720608
 ADMINS = [7908289094]
@@ -27,7 +28,7 @@ START_PIC = "https://i.ibb.co/PZtMPSKf/boultflix-popcorn-cart.webp"
 UPDATES_CHANNEL_URL = "https://t.me/+f-k01NScSxEyNzc1"
 SUPPORT_BOT_URL = "https://t.me/BoultFlixSupportBot"
 
-# 100% Valid Telegram Supported Reaction Emojis
+# 100% Supported Telegram Bot Reaction Emojis
 REACTION_EMOJIS = [
     "🔥", "⚡", "❤️", "🥰", "🎉", "🤩", "👏", 
     "👌", "🕊️", "😍", "💯", "💖", "🍓", "🍾", "😎", 
@@ -48,7 +49,7 @@ try:
     users_col = db["Users"]
     print("✅ MongoDB Connected Successfully!")
 except Exception as e:
-    print(f"⚠️ MongoDB Connection Warning: {e}")
+    print(f"⚠️ MongoDB Warning: {e}")
 
 app = Client(
     "BoultFlixMovieBot",
@@ -58,21 +59,21 @@ app = Client(
 )
 
 # ==========================================
-# 2. RENDER PORT KEEP-ALIVE SERVER
+# 2. RENDER AIOHTTP WEB SERVER (PORT KEEP-ALIVE)
 # ==========================================
-async def handle_http(reader, writer):
-    res = "HTTP/1.1 200 OK\r\nContent-Length: 14\r\n\r\nBoultFlix Live"
-    writer.write(res.encode("utf-8"))
-    await writer.drain()
-    writer.close()
+async def handle_ping(request):
+    return web.Response(text="BoultFlix Bot is Online 24/7!", status=200)
 
 async def start_web_server():
+    server = web.Application()
+    server.router.add_get("/", handle_ping)
+    server.router.add_get("/health", handle_ping)
+    runner = web.AppRunner(server)
+    await runner.setup()
     port = int(os.environ.get("PORT", 8080))
-    try:
-        await asyncio.start_server(handle_http, "0.0.0.0", port)
-        print(f"🌐 Keep-Alive Web Server active on port {port}")
-    except Exception:
-        pass
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"🌐 Render Keep-Alive active on port {port}")
 
 # ==========================================
 # 3. HELPER FUNCTIONS
@@ -129,7 +130,7 @@ async def log_user(user):
                 )
                 await app.send_message(LOG_CHANNEL, log_text)
     except Exception as e:
-        print(f"⚠️ Log User Error: {e}")
+        print(f"⚠️ User Log Error: {e}")
 
 # ==========================================
 # 4. /START HANDLER
@@ -165,7 +166,7 @@ async def start_handler(client, message):
         await message.reply_text(text=caption, reply_markup=buttons)
 
 # ==========================================
-# 5. MOVIE SEARCH ENGINE (52K MONGODB DATABASE)
+# 5. MOVIE SEARCH (52K+ MONGODB DATABASE)
 # ==========================================
 @app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about"]))
 async def search_movie(client, message):
@@ -341,9 +342,10 @@ async def channel_indexer(client, message):
             await asyncio.to_thread(db_save_new_file, media, message.id, cap)
 
 # ==========================================
-# 8. MAIN RUNNER (BOT + LOG + WEB SERVER)
+# 8. MAIN ENTRY POINT (START SERVER FIRST)
 # ==========================================
 async def main():
+    await start_web_server()
     await app.start()
     print("🚀 BoultFlix Bot Started Successfully!")
 
@@ -360,7 +362,6 @@ async def main():
         except Exception as e:
             print(f"⚠️ Log Channel Alert Error: {e}")
 
-    await start_web_server()
     await idle()
     await app.stop()
 
