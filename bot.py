@@ -48,7 +48,7 @@ files_col = db["telegram_files"]
 users_col = db["users"]
 
 app = Client(
-    "BoultFlix_Rpeditz_Production",
+    "BoultFlix_Rpeditz_Final_Clean",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
@@ -116,7 +116,7 @@ def db_get_file_by_id(doc_id):
         return None
 
 # ==========================================
-# 4. /START HANDLER & FILE DELIVERY
+# 4. /START HANDLER & FILE SENDER WITH TIMER
 # ==========================================
 @app.on_message(filters.command("start") & filters.private)
 async def start_handler(client, message):
@@ -137,29 +137,38 @@ async def start_handler(client, message):
                 chat_id_src = doc.get("chat_id", DB_CHANNEL)
                 msg_id_src = doc.get("message_id")
                 
+                sent_msg = None
                 if msg_id_src:
-                    await client.copy_message(
+                    sent_msg = await client.copy_message(
                         chat_id=user.id,
                         from_chat_id=chat_id_src,
                         message_id=msg_id_src,
                         reply_markup=file_btn
                     )
                 elif doc.get("file_id"):
-                    await client.send_cached_media(
+                    sent_msg = await client.send_cached_media(
                         chat_id=user.id,
                         file_id=doc["file_id"],
                         reply_markup=file_btn
                     )
+                
+                if sent_msg:
+                    # Auto delete warning message
+                    warn_text = "⚠️ <b>This movie file/video will be deleted in 5 minutes.\n\nPlease forward this file to somewhere else & start downloading there.</b>"
+                    warn_msg = await message.reply_text(warn_text)
+                    
+                    # Background task to delete files after 5 minutes (300 seconds)
+                    async def delete_files_task():
+                        await asyncio.sleep(300)
+                        try:
+                            await sent_msg.delete()
+                            await warn_msg.edit_text("❌ Your video / file is successfully deleted to protect this bot from copyright takedown.")
+                        except Exception:
+                            pass
+                    asyncio.create_task(delete_files_task())
                 return
             except Exception as e:
                 print(f"File Delivery Error: {e}", flush=True)
-                # Fallback to direct file_id send if copy_message fails
-                try:
-                    if doc.get("file_id"):
-                        await client.send_cached_media(chat_id=user.id, file_id=doc["file_id"], reply_markup=file_btn)
-                        return
-                except Exception:
-                    pass
                 await message.reply_text("❌ File send error! Please try again.")
                 return
 
@@ -181,7 +190,7 @@ async def start_handler(client, message):
         await message.reply_text(text=caption, reply_markup=buttons)
 
 # ==========================================
-# 5. RPEDITZ STYLE MOVIE SEARCH ENGINE
+# 5. MOVIE SEARCH ENGINE (FIXED COLLECTION QUERY)
 # ==========================================
 @app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about"]))
 async def search_movie(client, message):
@@ -222,7 +231,7 @@ async def search_movie(client, message):
         f"📁 <b>Total files :</b> <code>{total}</code>\n"
         f"⏳ <b>Result in :</b> <code>{time_taken} seconds</code>\n\n"
         f"🧃 <b>Requested by :</b> {user.mention}\n"
-        f"⚜️ <b>Powered by :</b> <a href='https://t.me/{BOT_USERNAME}'>HD Pro Search Bot</a> ⚡\n\n"
+        f"⚜️ <b>Powered by :</b> HD Pro Search Bot ⚡\n\n"
         f"<b><u>Your requested files are here</u></b>\n\n"
     )
 
@@ -300,10 +309,10 @@ async def bot_callbacks(client, query: CallbackQuery):
         await query.answer("About Details")
         about_text = (
             "╭─────[ <b>My details</b> 🫧 ]──────⍟\n"
-            f"├⍟ <b>My name :</b> <a href='https://t.me/{BOT_USERNAME}'>BoultFlix Movies 🫧🫶🏼</a>\n"
-            f"├⍟ <b>Developer :</b> <a href='https://t.me/BoultFlix'>Owner ⚡</a>\n"
-            "├⍟ <b>Database :</b> <a href='https://www.mongodb.com'>Mongo DB (52,899+ Files)</a>\n"
-            "├⍟ <b>Bot server :</b> <a href='https://render.com'>Render</a>\n"
+            f"├⍟ <b>My name :</b> BoultFlix Movies 🫧🫶🏼\n"
+            f"├⍟ <b>Developer :</b> Owner ⚡\n"
+            "├⍟ <b>Database :</b> Mongo DB (52,899+ Files)\n"
+            "├⍟ <b>Bot server :</b> Render\n"
             "╰───────────────⍟"
         )
         about_buttons = InlineKeyboardMarkup([
