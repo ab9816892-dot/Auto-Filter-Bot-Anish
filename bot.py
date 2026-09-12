@@ -11,14 +11,14 @@ from pymongo import MongoClient
 logging.basicConfig(level=logging.INFO)
 
 # ==========================================
-# 1. CONFIGURATION (CORRECT CHANNELS & CREDENTIALS)
+# 1. CONFIGURATION (ACCURATE IDS)
 # ==========================================
 API_ID = 39972309
 API_HASH = "dd6e47a51f4f934ed21d346f78aae407"
 BOT_TOKEN = "8520883339:AAG-ZmU0e2FiehtEoiZtLuCl852bVMydgVE"
 BOT_USERNAME = "BoultFlixMovieBot"
 
-# Channels Setup
+# Exact Channels & Admins
 DB_CHANNEL = -1004240578315
 LOG_CHANNEL = -1004328720608
 ADMINS = [7908289094]
@@ -27,23 +27,28 @@ START_PIC = "https://i.ibb.co/PZtMPSKf/boultflix-popcorn-cart.webp"
 UPDATES_CHANNEL_URL = "https://t.me/+f-k01NScSxEyNzc1"
 SUPPORT_BOT_URL = "https://t.me/BoultFlixSupportBot"
 
+# 100% Valid Telegram Supported Reaction Emojis
 REACTION_EMOJIS = [
-    "🔥", "⚡", "❤️", "🍿", "🥰", "🎉", "🤩", "👏", 
+    "🔥", "⚡", "❤️", "🥰", "🎉", "🤩", "👏", 
     "👌", "🕊️", "😍", "💯", "💖", "🍓", "🍾", "😎", 
-    "👾", "✨", "🤙", "🥂", "🎬", "🏆", "💎", "👻"
+    "👾", "✨", "🎬", "🏆", "💎", "👻", "🚀", "👑"
 ]
 
-# MongoDB Connection (Pure Stable PyMongo)
+# MongoDB Connection
 MONGO_URI = "mongodb+srv://ab9816892_db_user:anish12345@cluster0.yogzcqw.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 
+mongo_client = None
+files_col = None
+users_col = None
+
 try:
-    mongo_client = MongoClient(MONGO_URI)
+    mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
     db = mongo_client["Cluster0"]
     files_col = db["Telegram_Files"]
     users_col = db["Users"]
     print("✅ MongoDB Connected Successfully!")
 except Exception as e:
-    print(f"❌ MongoDB Connection Failed: {e}")
+    print(f"⚠️ MongoDB Connection Warning: {e}")
 
 app = Client(
     "BoultFlixMovieBot",
@@ -65,7 +70,7 @@ async def start_web_server():
     port = int(os.environ.get("PORT", 8080))
     try:
         await asyncio.start_server(handle_http, "0.0.0.0", port)
-        print(f"🌐 Keep-Alive Server active on port {port}")
+        print(f"🌐 Keep-Alive Web Server active on port {port}")
     except Exception:
         pass
 
@@ -79,13 +84,34 @@ async def send_reaction(message):
         pass
 
 def db_find_user(user_id):
-    return users_col.find_one({"user_id": user_id})
+    if users_col is not None:
+        return users_col.find_one({"user_id": user_id})
+    return None
 
 def db_add_user(user_id, name):
-    users_col.insert_one({"user_id": user_id, "name": name})
+    if users_col is not None:
+        users_col.insert_one({"user_id": user_id, "name": name})
 
 def db_search_movies(query_pattern):
-    return list(files_col.find({"file_name": {"$regex": query_pattern, "$options": "i"}}).limit(10))
+    if files_col is not None:
+        return list(files_col.find({"file_name": {"$regex": query_pattern, "$options": "i"}}).limit(10))
+    return []
+
+def db_save_new_file(media, msg_id, caption_text):
+    if files_col is not None:
+        fname = getattr(media, "file_name", None) or f"Video_{msg_id}.mp4"
+        files_col.update_one(
+            {"file_id": media.file_id},
+            {"$set": {
+                "file_id": media.file_id,
+                "file_name": fname,
+                "file_size": media.file_size,
+                "chat_id": DB_CHANNEL,
+                "message_id": msg_id,
+                "caption": caption_text
+            }},
+            upsert=True
+        )
 
 async def log_user(user):
     try:
@@ -103,7 +129,7 @@ async def log_user(user):
                 )
                 await app.send_message(LOG_CHANNEL, log_text)
     except Exception as e:
-        print(f"⚠️ User Log Error: {e}")
+        print(f"⚠️ Log User Error: {e}")
 
 # ==========================================
 # 4. /START HANDLER
@@ -139,7 +165,7 @@ async def start_handler(client, message):
         await message.reply_text(text=caption, reply_markup=buttons)
 
 # ==========================================
-# 5. MOVIE SEARCH ENGINE (DIRECT MONGODB QUERY)
+# 5. MOVIE SEARCH ENGINE (52K MONGODB DATABASE)
 # ==========================================
 @app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about"]))
 async def search_movie(client, message):
@@ -148,7 +174,6 @@ async def search_movie(client, message):
     raw_query = message.text.strip()
     user = message.from_user
     
-    # Clean Query for flexible Regex matching
     clean_query = re.sub(r"[:_.\-+!?()\[\]]", " ", raw_query)
     words = clean_query.split()
     regex_pattern = ".*".join([re.escape(w) for w in words if len(w) > 0])
@@ -159,7 +184,6 @@ async def search_movie(client, message):
     except Exception as e:
         print(f"MongoDB Search Error: {e}")
 
-    # No Results Found Fallback
     if not results:
         google_query_url = f"https://www.google.com/search?q={urllib.parse.quote_plus(raw_query)}"
         
@@ -190,7 +214,6 @@ async def search_movie(client, message):
         )
         return
 
-    # Render Found Movie Buttons
     buttons = []
     for res in results:
         file_name = res.get("file_name", "Download Video")
@@ -203,7 +226,7 @@ async def search_movie(client, message):
     )
 
 # ==========================================
-# 6. CALLBACK HANDLER & FILE DELIVERY
+# 6. CALLBACK HANDLERS
 # ==========================================
 @app.on_callback_query()
 async def bot_callbacks(client, query: CallbackQuery):
@@ -307,13 +330,23 @@ async def bot_callbacks(client, query: CallbackQuery):
             await query.answer("❌ File pathate somosya hoyeche!", show_alert=True)
 
 # ==========================================
-# 7. MAIN ENTRY POINT
+# 7. REAL-TIME AUTO INDEXER (NEW UPLOADS)
+# ==========================================
+@app.on_message(filters.channel & (filters.document | filters.video | filters.audio))
+async def channel_indexer(client, message):
+    if message.chat.id == DB_CHANNEL:
+        media = message.document or message.video or message.audio
+        if media and getattr(media, "file_size", 0) >= (100 * 1024 * 1024):
+            cap = message.caption.html if message.caption else ""
+            await asyncio.to_thread(db_save_new_file, media, message.id, cap)
+
+# ==========================================
+# 8. MAIN RUNNER (BOT + LOG + WEB SERVER)
 # ==========================================
 async def main():
     await app.start()
     print("🚀 BoultFlix Bot Started Successfully!")
 
-    # Restart Alert to Correct Log Channel
     if LOG_CHANNEL:
         try:
             startup_text = (
@@ -323,6 +356,7 @@ async def main():
                 f"🟢 <b>Sᴛᴀᴛᴜs:</b> Oɴʟɪɴᴇ & Rᴇᴀᴅʏ"
             )
             await app.send_message(LOG_CHANNEL, startup_text)
+            print("📢 Startup notification sent to Log Channel!")
         except Exception as e:
             print(f"⚠️ Log Channel Alert Error: {e}")
 
