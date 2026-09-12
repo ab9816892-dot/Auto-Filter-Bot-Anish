@@ -4,7 +4,12 @@ import asyncio
 import urllib.parse
 import logging
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.types import (
+    InlineKeyboardMarkup, 
+    InlineKeyboardButton, 
+    CallbackQuery, 
+    ReactionCustomEmoji
+)
 from config import API_ID, API_HASH, BOT_TOKEN, BOT_USERNAME, ADMINS, CHANNELS
 from database import db_instance
 
@@ -18,7 +23,7 @@ UPDATES_CHANNEL_URL = "https://t.me/+f-k01NScSxEyNzc1"
 SUPPORT_BOT_URL = "https://t.me/BoultFlixSupportBot"
 
 # ==========================================
-# CUSTOM PREMIUM EMOJI POOL (ALL YOUR IDS)
+# CUSTOM PREMIUM EMOJI POOL
 # ==========================================
 CUSTOM_EMOJI_IDS = [
     5210956306952758910, 5461117441612462242, 5456140674028019486, 5224607267797606837,
@@ -44,7 +49,12 @@ CUSTOM_EMOJI_IDS = [
     5416041192905265756, 5460755126761312667, 5461151367559141950
 ]
 
-FALLBACK_EMOJIS = ["🔥", "⚡", "❤️", "🍿", "🥰", "🎉", "🤩", "✨", "🤙", "💯"]
+# Native Animated Fallback Emojis
+FREE_ANIMATED_REACTIONS = [
+    "🔥", "⚡", "❤️", "🍿", "🥰", "🎉", "🤩", "👏", 
+    "👌", "🕊️", "😍", "💯", "💖", "🍓", "🍾", "😎", 
+    "👾", "✨", "🤙", "🥂", "🎬", "🏆", "💎", "👻"
+]
 
 app = Client(
     "BoultFlixMovieBot",
@@ -53,14 +63,15 @@ app = Client(
     bot_token=BOT_TOKEN
 )
 
-# Safe Background Reaction (Never blocks or crashes replies)
+# Safe Background Non-blocking Reaction
 async def safe_react(message):
+    chosen_id = random.choice(CUSTOM_EMOJI_IDS)
     try:
-        chosen_id = random.choice(CUSTOM_EMOJI_IDS)
-        await message.react(emoji=chosen_id)
+        await message.react(reaction=[ReactionCustomEmoji(document_id=chosen_id)])
     except Exception:
         try:
-            await message.react(emoji=random.choice(FALLBACK_EMOJIS))
+            fallback = random.choice(FREE_ANIMATED_REACTIONS)
+            await message.react(emoji=fallback)
         except Exception:
             pass
 
@@ -207,7 +218,6 @@ async def bot_callbacks(client, query: CallbackQuery):
 # ==========================================
 @app.on_message(filters.text & filters.private & ~filters.command(["start", "help", "about"]))
 async def search_movie(client, message):
-    # Non-blocking reaction in background task
     asyncio.create_task(safe_react(message))
 
     query = message.text.strip()
