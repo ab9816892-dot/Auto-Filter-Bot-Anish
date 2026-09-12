@@ -2,4 +2,3 @@ pyrofork
 pymongo
 dnspython
 aiohttp
-flask
